@@ -34,7 +34,7 @@ Linux and macOS, on amd64 and arm64, as koan and sesshin. Windows is never suppo
 
 ### Installing
 
-shingi needs Python 3.11 or later, for `tomllib`, and is installed into its own environment with `uv tool install` or `pipx install`, from a clone or the repository. macOS's system Python is too old: use one from uv, Homebrew, or python.org. Changes to how shingi behaves belong in `shingi.toml`; changes to its code belong in a clone, since an upgrade replaces an installed copy.
+shingi needs Python 3.11 or later, for `tomllib`, and is installed into its own environment with `uv tool install` or `pipx install`, from a clone or the repository. macOS's system Python is too old: use one from uv, Homebrew, or python.org. Either tool puts `shingi` in `~/.local/bin`, which must be on `PATH` (`uv tool update-shell` or `pipx ensurepath`), and pins it to the Python it was installed with: if that Python is removed or upgraded away, `shingi` stops running until it is reinstalled (`uv tool install --reinstall`, `pipx reinstall shingi`). uv and pipx are needed only to install, never to run. Changes to how shingi behaves belong in `shingi.toml`; changes to its code belong in a clone, since an upgrade replaces an installed copy.
 
 ## Terms
 
@@ -189,7 +189,7 @@ The result names its `source`, so a surprising story can be traced to where it c
 
 ## Commands
 
-Every command prints one line of JSON to stdout, in the same envelope as koan and sesshin, and uses their exit codes, so one `jq` habit covers all three. No failure ends in a Python traceback: an unexpected exception is still an envelope, and a closed stdout (`shingi where | head -c 10`) is koan's exit `3`, not a `BrokenPipeError`. Detailed inputs, outputs, and errors belong in `operations.md`; this section gives each command's purpose and contract.
+Every command prints one line of JSON to stdout, in the same envelope as koan and sesshin, and uses their exit codes, so one `jq` habit covers all three. No failure ends in a Python traceback: an unexpected exception is still an envelope, and a closed stdout (`shingi where | head -c 10`) is koan's exit `3`, not a `BrokenPipeError`. Output is always UTF-8, whatever the locale: under a C or POSIX locale, Python before 3.15 would write ASCII and fail on the first non-ASCII title, so shingi sets its own output encoding rather than trust the environment's. Detailed inputs, outputs, and errors belong in `operations.md`; this section gives each command's purpose and contract.
 
 ### where
 
