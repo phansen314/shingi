@@ -9,7 +9,7 @@ Keep agent work on one machine in the right place: one file declares where a sto
 - **Runs only when asked.** shingi hooks into no harness and adds nothing to how a session starts. A session learns its story when you or its agent ask: through the skill, `where`, or `init`.
 - **Tell, never enforce.** shingi never stands between an agent and its tools, and never judges what they did. Agents are told the layout ([`where`](#where)), and that is all. A misplaced task or file is cheap to move when someone notices it; preventing it would cost a hook on every tool call and a parser for every shell line an agent writes, and auditing it would make the layout a set of rules strict enough to check, which real work keeps breaking for good reasons.
 
-shingi is one binary, `shingi`. Its commands are [`where`](#where), [`init`](#init), and `version`. [`graph`](#graph) and [`mcp`](#the-mcp-adapter) come after v1 (see [Future work](#future-work)).
+shingi is one command, `shingi`: a Python 3.11+ package with no dependencies outside the standard library (see [Installing](#installing)). Its commands are [`where`](#where), [`init`](#init), and `version`. [`graph`](#graph) and [`mcp`](#the-mcp-adapter) come after v1 (see [Future work](#future-work)).
 
 ## Non-goals
 
@@ -31,6 +31,10 @@ shingi is one binary, `shingi`. Its commands are [`where`](#where), [`init`](#in
 ## Supported platforms
 
 Linux and macOS, on amd64 and arm64, as koan and sesshin. Windows is never supported.
+
+### Installing
+
+shingi needs Python 3.11 or later, for `tomllib`, and is installed into its own environment with `uv tool install` or `pipx install`, from a clone or the repository. macOS's system Python is too old: use one from uv, Homebrew, or python.org. Changes to how shingi behaves belong in `shingi.toml`; changes to its code belong in a clone, since an upgrade replaces an installed copy.
 
 ## Terms
 
@@ -114,7 +118,7 @@ Phases put no order on tasks: a starter task that should wait on another says so
 | Field | Type | Meaning |
 |---|---|---|
 | `schema` | integer | The file's format version (see [Format versions](#format-versions)). Required. |
-| `key` | string | A regular expression (Go's RE2 syntax) for a key, unanchored: shingi anchors it itself (see [Keys](#keys)). Required. |
+| `key` | string | A regular expression (Python's `re` syntax) for a key, unanchored: shingi anchors it itself (see [Keys](#keys)). Required. |
 | `koan.root` | string | The stories root: a koan folder path, absolute, never `/`. Required. |
 | `koan.phases` | list of strings | The phase folders, in work order, each a valid koan folder name. At least one. The order is for people and agents to read; nothing enforces it. |
 | `workspace.root` | string | The workspaces root. A leading `~/` is the home directory; otherwise absolute. Required. |
@@ -185,7 +189,7 @@ The result names its `source`, so a surprising story can be traced to where it c
 
 ## Commands
 
-Every command prints one line of JSON to stdout, in the same envelope as koan and sesshin, and uses their exit codes, so one `jq` habit covers all three. Detailed inputs, outputs, and errors belong in `operations.md`; this section gives each command's purpose and contract.
+Every command prints one line of JSON to stdout, in the same envelope as koan and sesshin, and uses their exit codes, so one `jq` habit covers all three. No failure ends in a Python traceback: an unexpected exception is still an envelope, and a closed stdout (`shingi where | head -c 10`) is koan's exit `3`, not a `BrokenPipeError`. Detailed inputs, outputs, and errors belong in `operations.md`; this section gives each command's purpose and contract.
 
 ### where
 
