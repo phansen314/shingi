@@ -1,6 +1,6 @@
 # shingi CLI spec
 
-The `shingi` command-line interface: how each command maps to the [operations](operations.md), how input gets in, and what comes out. The CLI adds no behavior of its own beyond parsing arguments, reading `--notes-file`, and passing `where` the current directory; everything about the data is specified by the operations and the [design spec](design-spec.md).
+The `shingi` command-line interface: how each command maps to the [operations](operations.md), how input gets in, and what comes out. The CLI adds no behavior of its own beyond parsing arguments, reading `--notes-file`, passing `where` the current directory, and passing `--config` on to the rules; everything about the data is specified by the operations and the [design spec](design-spec.md).
 
 The global rules follow koan's CLI spec almost word for word, so one habit covers koan, sesshin, and shingi. Where shingi differs, this document says so: its subject is optional for `where` and `list`, `create` takes two, and it has a `--config` option.
 
@@ -54,8 +54,8 @@ The command line is parsed in the GNU style, with koan's rules:
 - **Exact names.** Commands and options are matched exactly: no abbreviations and no other case.
 - **Empty values are values:** `--title ''` sets the empty string, which the operation rejects as `invalid-input`; `--notes ''` is no notes.
 - **Arguments are single tokens.** A value with spaces, such as a title, is one argument, quoted for the shell.
-- **Encoding.** Every value is UTF-8; one that is not is `invalid-input` at its field.
-- **The CLI rejects only what it cannot build:** two options that set one field (`--notes` with `--notes-file`), or `--input` with a field argument or option. Everything else reaches the operation.
+- **Encoding.** Every value is UTF-8; one that is not is `invalid-input` at its field, reported in the operation's own `invalid-input` together with any other problems in the input.
+- **The CLI rejects only what it cannot build:** two different options that set one field (`--notes` with `--notes-file`), or `--input` with a field argument or option. Everything else reaches the operation.
 - **A repeated option** that takes one value: the last one wins.
 - **Bare `shingi`**, with no command, is a usage error.
 - **`--help`** (or `-h`) writes help text and exits `0`, running no operation. Help text is for people and not part of the contract.
@@ -63,7 +63,7 @@ The command line is parsed in the GNU style, with koan's rules:
 
 ### Usage errors
 
-A usage error is a problem with the command line itself: an unknown command or option, a missing or extra argument, an option missing its value, two options that set one field, `--input` together with field arguments or options. It is reported as an envelope with error kind `usage`, and exits `2`. A token in the right place whose value is unacceptable is `invalid-input` or `invalid-name`, from the operation, the same error whether it arrives as an argument or through `--input`.
+A usage error is a problem with the command line itself: an unknown command or option, a missing or extra argument, an option missing its value, two different options that set one field, `--input` together with field arguments or options. It is reported as an envelope with error kind `usage`, and exits `2`. A token in the right place whose value is unacceptable is `invalid-input` or `invalid-name`, from the operation, the same error whether it arrives as an argument or through `--input`.
 
 `usage` is the CLI's only error kind of its own: no operation raises it. `details` reports the first problem found, as koan's does:
 
@@ -112,7 +112,7 @@ A usage error is a problem with the command line itself: an unknown command or o
 | Option | Meaning |
 |---|---|
 | `-i, --input <file>` | Read operation input from `<file>` (`-` for stdin). See [Input](#input). |
-| `--config <file>` | Read the rules from `<file>` instead of their [location](design-spec.md#locations), for tests and trials. Relative to the current directory; `~` is the shell's to expand. A missing or unreadable file is [`invalid-rules`](operations.md#error-kinds), as at the usual location. `version`, which reads no rules, accepts and ignores it. |
+| `--config <file>` | Read the rules from `<file>` instead of their [location](design-spec.md#locations), for tests and trials. Relative to the current directory; `~` is the shell's to expand. A missing or unreadable file is [`invalid-rules`](operations.md#error-kinds), as at the usual location, its `details.path` the file's absolute path. `version`, which reads no rules, accepts and ignores it. |
 | `-h, --help` | Print plain-text usage. |
 
 ## Command template
@@ -159,7 +159,7 @@ Everything about one unit: the unit named, or the one the current directory is i
 
 | Kind | When |
 |---|---|
-| `io` | With no unit, the current directory can't be read, e.g. it was removed. |
+| `io` | With no unit, the current directory can't be read, e.g. it was removed. `details.path` is `"."`. |
 
 **Examples:**
 
@@ -270,7 +270,7 @@ Make one unit: its start and done tasks in koan, its working folder, `uow.md`, a
 |---|---|---|
 | `--title <text>` | `/title` | The unit's name. One line. |
 | `--notes <text>` | `/notes` | No notes. Mutually exclusive with `--notes-file`. |
-| `--notes-file <file>` | `/notes` | —. Reads the notes from `<file>`; `-` is stdin. Mutually exclusive with `--notes`. |
+| `--notes-file <file>` | `/notes` | No notes. Reads the notes from `<file>`; `-` is stdin. Mutually exclusive with `--notes`. |
 
 **Input:** `--notes-file` reads the file's contents exactly as they are, trailing newline included, into `notes`; `create` adds a final newline only when they lack one. It accepts any readable path, as [`--input`](#input) does. Since `--input` excludes field options, `--notes-file -` and `--input -` never both read stdin.
 
@@ -285,8 +285,6 @@ Make one unit: its start and done tasks in koan, its working folder, `uow.md`, a
 |---|---|
 | `io` | The `--notes-file` file is missing, unreadable, or a directory. |
 | `invalid-input` | (`/notes`) The `--notes-file` contents are not valid UTF-8. |
-
-A `create` that exits `3`, or with any other outcome-unknown status, may have made the unit or part of it. Follow the operation's [Retry safety](operations.md#create) before running it again: a blind rerun can leave orphan tasks.
 
 **Examples:**
 

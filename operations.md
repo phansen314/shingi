@@ -542,7 +542,11 @@ Return shingi's own version.
 }
 ```
 
-**Errors:** none.
+**Errors,** in this order:
+
+| Kind | When |
+|---|---|
+| `invalid-input` | The input is not an empty object. |
 
 **Warnings:** none.
 
