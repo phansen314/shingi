@@ -16,6 +16,16 @@ def version(inp, config):
     return {"version": package_version("shingi")}, []
 
 
+def kinds(inp, config):
+    rules = rules_file.load(config)
+    return {
+        "kinds": [
+            {"name": name, "description": kind.get("description", ""), "suggests": kind.get("suggests", [])}
+            for name, kind in sorted(rules.kinds.items(), key=lambda item: item[0].encode())
+        ]
+    }, []
+
+
 def where(inp, config):
     rules = rules_file.load(config)
     if "cwd" in inp:
