@@ -117,7 +117,7 @@ suggests    = []
 | Field | Type | Meaning |
 |---|---|---|
 | `schema` | integer | The file's format version (see [Format versions](#format-versions)). Required. |
-| `roots.koan` | string | The koan root: a koan folder path, absolute. A folder only shingi uses, such as `/work` (see [Assumptions](#assumptions)). Required. |
+| `roots.koan` | string | The koan root: a koan folder path, absolute, and never `/`. A folder only shingi uses, such as `/work` (see [Assumptions](#assumptions)). Required. |
 | `roots.working` | string | The working root. A leading `~/` is the home directory; otherwise absolute. Must be an existing directory: shingi never makes it. Required. |
 | `kind.<name>` | table | Defines a kind. `<name>` is lowercase ASCII letters, digits, and `-`, as a koan tag. At least one kind is required. |
 | `kind.<name>.description` | string | What the kind is for, one line, for [`kinds`](#kinds-1) to report. Optional. |
@@ -255,7 +255,7 @@ and the new done task is added to the blockers of the parent's done task, so a p
 
 ## Commands
 
-Every command prints one line of JSON to stdout, in koan's envelope, and uses koan's exit codes, so one `jq` habit covers koan, sesshin, and shingi. No failure ends in a Python traceback: an unexpected exception is still an envelope, and a closed stdout (`shingi where X | head -c 10`) is koan's exit `3`, not a `BrokenPipeError`. Output is always UTF-8, whatever the locale. Every filesystem path in output is absolute, with `~` expanded: not every harness's file tools expand `~`. [operations.md](operations.md) specifies each command's input, output, and problems in full, and [cli-spec.md](cli-spec.md) its command line.
+Every command prints one line of JSON to stdout, in koan's envelope, and uses koan's exit codes, so one `jq` habit covers koan, sesshin, and shingi. No failure ends in a Python traceback: an unexpected exception is still an envelope, and a closed stdout (`shingi where X | head -c 10`) is koan's exit `3`, not a `BrokenPipeError`. Output is always UTF-8, whatever the locale. Every filesystem path in output is absolute, with `~` expanded: not every harness's file tools expand `~`. The one exception is `where`'s `io` for a current directory that no longer exists, which has no absolute path to report and gives `"."`. [operations.md](operations.md) specifies each command's input, output, and problems in full, and [cli-spec.md](cli-spec.md) its command line.
 
 A unit is named on the command line by its path (`HOME-12345/foo-split/1-schema`), matched exactly (see [Names](#names)).
 

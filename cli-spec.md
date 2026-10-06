@@ -159,7 +159,7 @@ Everything about one unit: the unit named, or the one the current directory is i
 
 | Kind | When |
 |---|---|
-| `io` | With no unit, the current directory can't be read, e.g. it was removed. `details.path` is `"."`. |
+| `io` | With no unit, the current directory can't be read, e.g. it was removed. `details.path` is `"."`, the one relative path in shingi's output (see the design spec's [Commands](design-spec.md#commands)). |
 
 **Examples:**
 

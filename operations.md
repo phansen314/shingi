@@ -177,7 +177,7 @@ Every operation but [`version`](#version) reads the rules file first, from its [
 
 1. It exists and can be read (`invalid-rules`, `reason` `missing` or `unreadable`), as UTF-8 TOML (`syntax`).
 2. `schema` is present and an integer (`invalid`), and one shingi supports (`unsupported-format`). shingi 0.x supports `1`.
-3. Every other field, as [Fields](design-spec.md#fields) says, each problem reported (`invalid`). Unknown fields are problems. `roots.koan` is a koan folder path: `/`, or `/` followed by names joined by `/`. `roots.working`, after a leading `~/` is expanded, is absolute and an existing directory. Each kind name is a koan tag name, `^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`, and each `suggests` entry names a defined kind.
+3. Every other field, as [Fields](design-spec.md#fields) says, each problem reported (`invalid`). Unknown fields are problems. `roots.koan` is a koan folder path other than `/`: `/` followed by names joined by `/`. `roots.working`, after a leading `~/` is expanded, is absolute and an existing directory. Each kind name is a koan tag name, `^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`, and each `suggests` entry names a defined kind.
 
 The working root is then used as its real path, symlinks resolved, everywhere: in every check and every path in output.
 
@@ -194,7 +194,7 @@ A unit path is a relative path of names, as [Names](design-spec.md#names) define
 }
 ```
 
-A unit's **koan folder** is the koan root, `/`, and its path (`/work` + `HOME-12345` is `/work/HOME-12345`; a koan root of `/` gives `/HOME-12345`). Its **working folder** is the working root, `/`, and its path.
+A unit's **koan folder** is the koan root, `/`, and its path (`/work` + `HOME-12345` is `/work/HOME-12345`). Its **working folder** is the working root, `/`, and its path.
 
 ### Resolving a path
 
