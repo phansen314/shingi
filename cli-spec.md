@@ -1,6 +1,6 @@
 # shingi CLI spec
 
-The `shingi` command-line interface: how each command maps to the [operations](operations.md), how input gets in, and what comes out. The CLI adds no behavior of its own beyond parsing arguments, reading `--notes-file`, passing `where` the current directory, and passing `--config` on to the rules; everything about the data is specified by the operations and the [design spec](design-spec.md).
+The `shingi` command-line interface: how each command maps to the [operations](operations.md), how input gets in, and what comes out. The CLI adds no behavior of its own beyond parsing arguments, reading `--input` and `--notes-file`, passing `where` the current directory, and passing `--config` on to the rules; everything about the data is specified by the operations and the [design spec](design-spec.md).
 
 The global rules follow koan's CLI spec almost word for word, so one habit covers koan, sesshin, and shingi. Where shingi differs, this document says so: its subject is optional for `where` and `list`, `create` takes two, and it has a `--config` option.
 
@@ -45,7 +45,7 @@ jq -n --arg d "$PWD" '{cwd: $d}' | shingi where -i -
 The command line is parsed in the GNU style, with koan's rules:
 
 - **Command names are operation names:** `where`, `list`, `kinds`, `version`, `create`. There are no aliases.
-- **Option names are field names,** in kebab-case. `--notes-file` and `--config` are the exceptions: neither sets a field under its own name.
+- **Option names are field names,** in kebab-case. `--input`, `--notes-file`, `--config`, and `--help` are the exceptions: none sets a field under its own name.
 - **Arguments are for required subjects,** with two departures from koan. `where` and `list` take their unit as an optional argument, since a unit is a path and no option could be confused with one; and `create` takes two, its path and its kind, in that order. Everything else is an option, so a bare token always has one meaning.
 - **Paths are exact.** A unit path is taken exactly as given: never completed, normalized, case-folded, or derived from the working directory (but see [`where`](#where)). `HOME-12345/` and `/HOME-12345` reach the operation as given, which rejects them as `invalid-name`.
 - **Options and arguments follow the command,** in any order: `shingi <command> [options and arguments]`. `--help` may also be given with no command.
@@ -128,7 +128,7 @@ Every command is specified with these parts, in this order. Every part is always
 | **Options** | Table of command-specific options (not the [global options](#global-options)), the input field each sets, and its default. |
 | **Input** | Anything about input beyond the Arguments and Options mapping. |
 | **Output** | `Passthrough.`, or how the output differs from the operation's. |
-| **Errors** | Errors the CLI adds beyond the operation's. Usually none. |
+| **Errors** | Errors the command adds beyond the operation's and the global ones: `usage`, and `io` for an unreadable `--input` file, which every command can raise. Usually none. |
 | **Examples** | `sh` examples, with the `jq` side where it helps. |
 
 Exit codes are not a part: they follow from the envelope and the [Exit codes](#exit-codes) table.
@@ -165,9 +165,9 @@ Everything about one unit: the unit named, or the one the current directory is i
 
 ```sh
 shingi where | jq -r .result.path                                  # which unit am I in?
-cd "$(shingi where HOME-12345/foo-1-schema | jq -r .result.working_folder)"
+cd "$(shingi where HOME-12345/foo-split/1-schema | jq -r .result.working_folder)"
 shingi where HOME-12345 | jq -r '.result.children[].path'
-shingi where HOME-12345/foo-1-schema | jq '.result | {state, start: .start.id, done: .done.id}'
+shingi where HOME-12345/foo-split/1-schema | jq '.result | {state, start: .start.id, done: .done.id}'
 ```
 
 ### list

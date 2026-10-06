@@ -1,6 +1,6 @@
 # shingi operations
 
-An operation is a single query of, or change to, what the [design spec](design-spec.md) defines. Operations are the domain layer, small and orthogonal. They are not CLI commands, though each command runs exactly one: the design spec's [Commands](design-spec.md#commands) give each command's arguments, and [cli-spec.md](cli-spec.md) maps them onto the input fields here.
+An operation is a single query of, or change to, what the [design spec](design-spec.md) defines. Operations are the domain layer, small and orthogonal. They are not CLI commands, though each command runs exactly one: [cli-spec.md](cli-spec.md) gives each command's arguments and maps them onto the input fields here.
 
 The operations are the three that read the tree, [`where`](#where), [`list`](#list), and [`kinds`](#kinds); [`version`](#version); and [`create`](#create), the only one that changes anything.
 
@@ -129,7 +129,7 @@ Each operation's Errors table lists its checks in the order it makes them, and a
 
 A warning is a problem an operation told and went on past. It never changes the outcome, and never guesses: what it reports as `null` stays `null`.
 
-- **One warning per problem:** per unit for `unsupported-manifest` and `undefined-kind`, per unit and role for `missing-task`, per task for `orphan-task`, per koan warning for `koan-warning`.
+- **One warning per problem:** per unit for `unsupported-manifest` and `undefined-kind`, per unit and role for `missing-task` and `parent-unlinked`, one each for `parent-done` and `notes-kept`, per task for `orphan-task`, per koan warning for `koan-warning`.
 - **Deterministic order:** `warnings` is sorted by `kind`, then by `unit` in [path order](design-spec.md#terms), `null` first, then by `ids`, compared element by element as numbers, then by `details.role`, `start` before `done`. `koan-warning`s that still tie keep koan's order, calls in the order shingi made them.
 
 ### Warning kinds
@@ -141,7 +141,7 @@ A warning is a problem an operation told and went on past. It never changes the 
 | `missing-task` | No task in the unit's koan folder is its start task, or its done task. Not reported when the manifest is unusable or koan failed, which `null` the tasks for another reason. | the unit | `[]` | `role`: `start` or `done`. |
 | `orphan-task` | A task tagged `shingi`, in the koan folders `list` read, that matches no unit. | the unit whose `id` it carries, when `list` found one elsewhere; otherwise `null` | the task | `folder`: the task's koan folder; `source`, `shingi_unit`: its `extra.source` and `extra.shingi-unit`, each `null` when absent or not a string. |
 | `parent-done` | The parent's done task was already done, so the new done task was not added to its blockers. | the new unit | the parent's done task | `parent`. |
-| `parent-unlinked` | The parent's start or done task could not be found, so that link was left out. | the new unit | `[]` | `parent`; `role`: `start` or `done`; `reason`: `unusable-manifest` or `missing-task`. |
+| `parent-unlinked` | The parent's start or done task could not be found, so that link was left out. | the new unit | `[]` | `parent`; `role`: `start` or `done`; `reason`: `unsupported-manifest` or `missing-task`. |
 | `notes-kept` | The working folder already held a `uow.md`, which was kept, so the title and notes given were not written. | the new unit | `[]` | `notes_path`. |
 | `koan-failed` | koan could not be run, or returned an error, while reading tasks; every task is `null`. | the unit read, or `null` from `list` | `[]` | As the [error](#error-kinds). |
 | `koan-warning` | A koan call succeeded with a warning of its own. An unusable task file can hide a start or done task, so while one is present, `missing-task`, `orphan-task`, or `parent-unlinked` may be wrong. | `null` | the koan warning's `ids` | `call`; `warning`: koan's warning, verbatim. |
@@ -582,7 +582,7 @@ Make one unit: its start and done tasks in koan, linked to its parent's, then it
 
 **Additional validation:** `title` holds no line break (`\n` or `\r`). No string holds a NUL.
 
-**Preconditions:** `path` is a valid unit path of at most 193 characters, `kind` is defined, the parent is a unit (or `path` is one segment), no entry in the parent's folder takes the name, and the unit's `uow.json` doesn't exist.
+**Preconditions:** `path` is a valid unit path of at most 193 characters, `kind` is defined, the parent is a unit (or `path` is one segment), no entry in the parent's folder takes the name but a directory with exactly the name, which is adopted, and the unit's `uow.json` doesn't exist.
 
 **Effects:**
 

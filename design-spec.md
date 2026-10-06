@@ -67,7 +67,7 @@ shingi needs Python 3.11 or later, for `tomllib`, and is installed into its own 
 | Term | Meaning |
 |---|---|
 | **unit** | A unit of work: one node of the hierarchy, recorded by a `uow.json` (see [The manifest](#the-manifest)). |
-| **path** | A unit's place in the hierarchy, its names joined by `/`: `HOME-12345/foo-1-schema`. Relative; never starts with `/`. |
+| **path** | A unit's place in the hierarchy, its names joined by `/`: `HOME-12345/foo-split/1-schema`. Relative; never starts with `/`. |
 | **path order** | Paths compared segment by segment, each segment by its bytes, so every unit's descendants follow it directly: `a`, `a/c`, `a-b`. |
 | **name** | The last segment of a path: the unit's own folder name. |
 | **parent**, **children** | The unit whose folder holds this one's, and the units whose folders this one holds. Derived from the nesting. |
@@ -137,7 +137,7 @@ Unknown fields are an error, not ignored, so a typo says so instead of silently 
 
 ### Names
 
-- **A name is a koan folder name:** ASCII letters, digits, and `-`, at most 64 characters, neither starting nor ending with `-`: `HOME-12345`, `foo-1-schema`. The path is a koan folder path too, so a name koan would refuse would break the mirror; and every name this allows is also a valid part of a git branch name and a shell argument, with no quoting.
+- **A name is a koan folder name:** ASCII letters, digits, and `-`, at most 64 characters, neither starting nor ending with `-`: `HOME-12345`, `foo-split`, `1-schema`. The path is a koan folder path too, so a name koan would refuse would break the mirror; and every name this allows is also a valid part of a git branch name and a shell argument, with no quoting.
 - **A path is at most 193 characters,** so its start task's title, `Start: <path>`, fits koan's 200. `create` checks this; nothing else needs to.
 - **A name means nothing to shingi.** `HOME-12345` may be a Jira key to you; to shingi it is a name, checked only against the rule above.
 - **Case is kept, never changed.** A name is stored, shown, and matched exactly as it was given to `create`, in whatever mix of cases it has, and so is everything derived from it: the koan folder and the working folder. shingi never uppercases, lowercases, or folds a name, and matches a path case-sensitively.
@@ -159,7 +159,7 @@ All fields are required. Unknown fields are an error, as in the rules file.
 
 ### Example
 
-`~/work/HOME-12345/foo-1-schema/uow.json`:
+`~/work/HOME-12345/foo-split/1-schema/uow.json`:
 
 ```json
 {
@@ -226,7 +226,7 @@ A stack's order lives where it stays true: in git, which knows each branch's his
 
 A unit is *named* by its path and *identified* by its `id`.
 
-- **People and tools name a unit by its path.** It is unique, since the filesystem allows one folder per name, and readable: `HOME-12345/foo-1-schema` says what it is. Every command takes a path, and ino, later, would hand units out by it.
+- **People and tools name a unit by its path.** It is unique, since the filesystem allows one folder per name, and readable: `HOME-12345/foo-split/1-schema` says what it is. Every command takes a path, and ino, later, would hand units out by it.
 - **Start and done tasks are tied to a unit by its `id`,** not its path (see [Start and done tasks](#start-and-done-tasks)). The koan folder is where they are looked for; the `id` is how they are recognized there.
 - **The `id` is random, not counted.** `create` makes a fresh UUID, so there is no counter, no lock, and no state outside the units themselves.
 - **Moving a unit keeps its identity.** Its path changes and its `id` doesn't; moved together with its koan folder, its tasks still match it. Moving is [by hand](#moving-and-removing-units) for now.
@@ -245,7 +245,7 @@ and the new done task is added to the blockers of the parent's done task, so a p
 
 - **Found by the unit's `id`, never stored.** Every task shingi makes is tagged `shingi`, so one `koan list` narrowed to that tag finds them all, and, as long as nothing else is tagged `shingi`, nothing else. Among them, `extra.source` says the role and `extra.shingi-unit` the unit: a unit's start task is the one in its koan folder whose `source` is `shingi-start` and whose `shingi-unit` is the unit's `id`; its done task, the one whose `source` is `shingi-done`. The manifest records no task IDs.
 - **Tagged by role, for the frontier.** koan's `frontier` filters by tag, never by `extra`, so each task also carries its role as a tag: `koan frontier --tags-all shingi-start` is every unit ready to begin, and `--tags-all shingi-done` every unit ready to close. shingi reads only `extra`; the role tags are for people and agents.
-- **Looked for in the unit's koan folder, and only there.** Every command that reads tasks runs one `koan list` of tasks tagged `shingi`, done tasks included: `where` of the unit's koan folder alone, and `list` of the koan folder it starts from and everything under it (the koan root, with no argument). A task matches a unit only when it carries the unit's `id` *and* sits in the unit's koan folder, so `where` and `list` always agree. A task carrying a unit's `id` in any other folder matches nothing: `list` warns it as [`orphan-task`](#problems). A koan folder that doesn't exist yet, such as the koan root before the first `create`, holds no tasks.
+- **Looked for in the unit's koan folder, and only there.** Every read of tasks is one `koan list` of tasks tagged `shingi`, done tasks included: `where` reads the unit's koan folder alone, and `list` the koan folder it starts from and everything under it (the koan root, with no argument). `create` makes two such reads, each as `where` does: the parent's koan folder before it makes anything, and the new unit's to report it. A task matches a unit only when it carries the unit's `id` *and* sits in the unit's koan folder, so `where` and `list` always agree. A task carrying a unit's `id` in any other folder matches nothing: `list` warns it as [`orphan-task`](#problems). A koan folder that doesn't exist yet, such as the koan root before the first `create`, holds no tasks.
 - **Titles are for people.** shingi writes them, and never reads them: renaming one changes nothing. A title names the unit's path, the one thing in it that can go stale: a unit moved by hand keeps its old titles until its tasks are retitled, as [moving](#moving-and-removing-units) says, and `shingi move` would retitle them itself.
 - **Times are koan's.** A unit was created at its start task's `created_at`, started at its start task's `completed_at`, and done at its done task's `completed_at`.
 - **The start task is the unit's gate.** Every other task in a unit waits on it, so a unit's tasks stay off the frontier until someone decides to begin it: a stack's next piece, or work specified now for later, waits there unseen. Whoever begins a unit marks its start task done first; whoever finishes it marks its done task. Done covers cancelled; a reason goes in the task's notes.
@@ -257,7 +257,7 @@ and the new done task is added to the blockers of the parent's done task, so a p
 
 Every command prints one line of JSON to stdout, in koan's envelope, and uses koan's exit codes, so one `jq` habit covers koan, sesshin, and shingi. No failure ends in a Python traceback: an unexpected exception is still an envelope, and a closed stdout (`shingi where X | head -c 10`) is koan's exit `3`, not a `BrokenPipeError`. Output is always UTF-8, whatever the locale. Every filesystem path in output is absolute, with `~` expanded: not every harness's file tools expand `~`. [operations.md](operations.md) specifies each command's input, output, and problems in full, and [cli-spec.md](cli-spec.md) its command line.
 
-A unit is named on the command line by its path (`HOME-12345/foo-1-schema`), matched exactly (see [Names](#names)).
+A unit is named on the command line by its path (`HOME-12345/foo-split/1-schema`), matched exactly (see [Names](#names)).
 
 ### Output
 
@@ -276,16 +276,16 @@ A unit is named on the command line by its path (`HOME-12345/foo-1-schema`), mat
 
 ```json
 {
-  "path": "HOME-12345/foo-1-schema",
+  "path": "HOME-12345/foo-split/1-schema",
   "id": "3f6c2a9e-8b1d-4e47-9c05-7a2d41e6b0f3",
   "kind": "branch",
   "title": "foo: schema changes",
   "state": "started",
-  "parent": "HOME-12345",
+  "parent": "HOME-12345/foo-split",
   "children": [],
-  "koan_folder": "/work/HOME-12345/foo-1-schema",
-  "working_folder": "/home/you/work/HOME-12345/foo-1-schema",
-  "notes_path": "/home/you/work/HOME-12345/foo-1-schema/uow.md",
+  "koan_folder": "/work/HOME-12345/foo-split/1-schema",
+  "working_folder": "/home/you/work/HOME-12345/foo-split/1-schema",
+  "notes_path": "/home/you/work/HOME-12345/foo-split/1-schema/uow.md",
   "start": { "id": 41, "readiness": "done", "created_at": "2026-10-04T09:12:00Z", "completed_at": "2026-10-05T08:30:00Z" },
   "done": { "id": 42, "readiness": "blocked", "created_at": "2026-10-04T09:12:00Z", "completed_at": null }
 }
@@ -300,7 +300,7 @@ A unit is named on the command line by its path (`HOME-12345/foo-1-schema`), mat
 | `parent` | The parent's path; `null` for a top-level unit. |
 | `children` | Each child as `{ "path", "kind" }`, in [path order](#terms). |
 | `koan_folder`, `working_folder`, `notes_path` | Where its tasks, its working material, and its notes are. |
-| `start`, `done` | Its start and done tasks, as koan reports them: `id`, `readiness`, `created_at`, `completed_at`, with koan's meanings. `null` when the task isn't found, or koan failed (see [Problems](#problems)); more than one, only after an outside change, reports the lowest ID. |
+| `start`, `done` | Its start and done tasks, as koan reports them: `id`, `readiness`, `created_at`, `completed_at`, with koan's meanings. `null` when the task isn't found, the manifest can't be read, or koan failed (see [Problems](#problems)); more than one, only after an outside change, reports the lowest ID. |
 
 ### where
 
@@ -326,11 +326,12 @@ With no unit, `where` names the unit the current directory is in, for an agent t
 1. **Check,** in this order. The path is valid; the kind is defined; the parent (from the path) exists, or the path is a single segment; no entry in the parent's folder has the name in another case, and no file has it exactly; no `uow.json` is there yet. A failed check changes nothing.
 2. **Set up koan.** Make the unit's `id`, a fresh UUID. One `koan create-batch` makes the koan folder and the unit's [start and done tasks](#start-and-done-tasks): the start task, blocked by the parent's start task, and the done task, blocked by the start task. Then `koan block` adds the done task to the parent's done task's blockers, unless that task is already done, which is warned as [`parent-done`](#problems) and left alone. The parent's tasks are found by its `id`, as `where` finds them, before anything is made. Each link is made or left out on its own: when the parent's start task, or its done task, can't be found — the parent's `id` is unreadable, or no task carries it — that link is left out and warned as [`parent-unlinked`](#problems), never guessed, and the other is still made.
 3. **Write the files.** Make the working folder if there is none, write `uow.md` if there is none, then write the manifest, with its `id`. The unit exists from this moment, and not before.
+4. **Report.** Read the new unit back as `where` does, passing on any warning that read gives.
 
 `create` never resumes. One that fails after making something, before the manifest is written, is an error with `partial`, as koan's multi-file writes are; once the manifest is written the unit exists, and an error after that carries no `partial`:
 
 ```json
-{ "koan_folders": ["/work/HOME-12345/foo-1-schema"], "tasks": [41, 42], "blocked": { "task": 17, "added": [42] }, "files": ["/home/you/work/HOME-12345/foo-1-schema/uow.md"] }
+{ "koan_folders": ["/work/HOME-12345/foo-split/1-schema"], "tasks": [41, 42], "blocked": { "task": 17, "added": [42] }, "files": ["/home/you/work/HOME-12345/foo-split/1-schema/uow.md"] }
 ```
 
 `koan_folders` are the koan folders it made, as koan's `folders_created` reports them, never one that was already there; `tasks`, the tasks it made; `blocked`, the blocker it added to the parent's done task, or `null`; `files`, the files and folders it made, never one that was already there. Cleaning up is undoing what `partial` lists, by an agent or by hand — `koan delete` on each task, which also takes it out of the parent's blockers, then `koan delete-folder` on each koan folder, innermost first, then removing the files — before running `create` again. The [skill](#claude-code) teaches this. A `create` killed before it could report leaves tasks that no manifest claims, which [`list`](#list) warns as [`orphan-task`](#problems); so may a koan call killed in the middle of `create`, whose outcome shingi can't know, so its `partial` may list less than was made.
@@ -349,13 +350,13 @@ A unit whose manifest already exists is [`unit-exists`](#problems), and nothing 
 
 ## Problems
 
-Every problem shingi reports, by name. An error means the command changed nothing, except a `create` that failed part-way, whose error lists what it made in `partial` (see [create](#create)); a warning is told, never guessed past, and fixed by a person or an agent. Each kind's `details` are in [operations.md](operations.md#errors).
+Every problem shingi reports, by name. An error means the command changed nothing, except a `create` that failed part-way, whose error lists what it made in `partial` (see [create](#create)); a warning is told, never guessed past, and fixed by a person or an agent. `create` also passes on whatever warnings reading the new unit back gives. Each kind's `details` are in operations.md's [Error kinds](operations.md#error-kinds) and [Warning kinds](operations.md#warning-kinds).
 
 ### Errors
 
 | Kind | Commands | When |
 |---|---|---|
-| `usage` | all | The command line is malformed: an unknown command or option, a missing or extra argument, `-i` together with arguments, `--notes` together with `--notes-file`. |
+| `usage` | all | The command line is malformed: an unknown command or option, a missing or extra argument, `-i` together with an argument or option that sets an input field, `--notes` together with `--notes-file`. |
 | `invalid-input` | all | The input is the wrong shape: `create -i` JSON that isn't an object of the right fields, or a `--title` that is empty or holds a line break. |
 | `invalid-rules` | all but `version` | The rules file is missing, unreadable, or breaks [Fields](#fields). |
 | `unsupported-format` | all but `version` | The rules file's `schema` is one shingi doesn't support. |
@@ -366,21 +367,21 @@ Every problem shingi reports, by name. An error means the command changed nothin
 | `unknown-kind` | `create` | The kind is not defined in the rules. |
 | `unit-exists` | `create` | The unit's `uow.json` already exists. Found by the check, or, in a race, by the manifest's exclusive create (see [Concurrency](#concurrency)). |
 | `koan-failed` | `create` | koan could not be run, or returned an error; koan's envelope is in `details`, and what `create` made in `partial`. Undo what `partial` lists, then run `create` again. When koan couldn't report, its outcome is unknown: run `list` for `orphan-task`s before running `create` again. |
-| `io` | all but `version` | The filesystem refused: permission denied, disk full, and the like. From `create`, with `partial` when it had made something and the unit doesn't exist yet. |
+| `io` | all | The filesystem refused: permission denied, disk full, and the like. From `version`, only when `-i`'s file can't be read. From `create`, with `partial` when it had made something and the unit doesn't exist yet. |
 | `internal` | all | A bug: an unexpected exception, still reported as an envelope; from `create`, with `partial` when it had made something and the unit doesn't exist yet. |
 
 ### Warnings
 
 | Kind | Commands | When |
 |---|---|---|
-| `unsupported-manifest` | `where`, `list` | A unit's `uow.json` has a `schema` shingi doesn't support (see [Format versions](#format-versions)), or, after an outside change, can't be read at all. It is still a unit, with `id` and `kind` `null`; with its `id` unknown, its tasks can't be matched, and `list` shows them as `orphan-task`, which this explains. |
-| `undefined-kind` | `where`, `list` | A unit's kind is no longer defined in the rules (see [Kinds](#kinds)). |
-| `missing-task` | `where`, `list` | No start task, or no done task, in the unit's koan folder carries its `id`. That task is reported as `null`. |
-| `orphan-task` | `list` | A task tagged `shingi`, in the koan folders `list` reads, that matches no unit: its `extra.shingi-unit` names no unit `list` found, or names one whose koan folder it isn't in. Left by a `create` killed before it could report, by a unit whose working folder was removed and whose tasks weren't, or by a task moved out of its unit's koan folder. |
+| `unsupported-manifest` | `where`, `list`, `create` | A unit's `uow.json` has a `schema` shingi doesn't support (see [Format versions](#format-versions)), or, after an outside change, can't be read at all. It is still a unit, with `id` and `kind` `null`; with its `id` unknown, its tasks can't be matched, and `list` shows them as `orphan-task`, which this explains. |
+| `undefined-kind` | `where`, `list`, `create` | A unit's kind is no longer defined in the rules (see [Kinds](#kinds)). |
+| `missing-task` | `where`, `list`, `create` | No start task, or no done task, in the unit's koan folder carries its `id`. That task is reported as `null`. |
+| `orphan-task` | `list` | A task tagged `shingi`, in the koan folders `list` reads, that matches no unit: its `extra.shingi-unit` names no unit `list` found, names one whose koan folder it isn't in, or is missing. Left by a `create` killed before it could report, by a unit whose working folder was removed and whose tasks weren't, or by a task moved out of its unit's koan folder. |
 | `parent-done` | `create` | The parent's done task was already done, so the new done task was not added to its blockers. |
 | `parent-unlinked` | `create` | The parent's start or done task could not be found — missing, or the parent's `id` unreadable — so the link to it was left out, to be added by hand; a link to the other was still made. |
 | `notes-kept` | `create` | The working folder already held a `uow.md`, which was kept, so `--title` and `--notes` were not written. |
-| `koan-failed` | `where`, `list` | koan could not be run, or returned an error; every task is `null`, and everything else is still reported. |
+| `koan-failed` | `where`, `list`, `create` | koan could not be run, or returned an error; every task is `null`, and everything else is still reported. From `create`, only when reading the new unit back; anywhere earlier it is an error. |
 | `koan-warning` | `where`, `list`, `create` | A koan call warned, passed on in `details`. An unusable or unreadable task file can hide a start or done task, so while one is present, `missing-task`, `orphan-task`, or `parent-unlinked` may be wrong. |
 
 ## Front ends
