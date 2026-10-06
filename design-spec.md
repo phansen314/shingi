@@ -124,7 +124,7 @@ Unknown fields are an error, not ignored, so a typo says so instead of silently 
 
 - **A unit is a folder with a manifest.** A folder under the working root is a unit exactly when it holds a `uow.json`.
 - **Units nest only in units.** A unit's folder sits directly in the working root (a top-level unit) or directly in another unit's folder (its parent). A manifest anywhere else — in a plain folder, or deeper inside a unit's working material — is not a unit, and no walk finds it.
-- **Walks follow manifests.** A walk looks only in the working root and in units' folders, and goes no deeper than a folder with no `uow.json`: that branch of the walk stops there. So a unit's working material, however large, is never walked.
+- **Walks follow manifests.** A walk looks only in the working root and in units' folders, and goes no deeper than a folder with no `uow.json`: that branch of the walk stops there. So a unit's working material, however large, is never walked. The one look past a stop is a single level, for `list`'s [`missing-manifest`](#problems) warning: whether any folder directly inside it holds a `uow.json`.
 - **Children are found, never listed.** A parent records nothing about its children: they are the folders directly in its folder that hold a manifest.
 - **The path is mirrored.** A unit's koan folder and working folder are its path under the koan root and the working root. Both trees show the same hierarchy, but the working tree decides it: a unit exists when its manifest does, and its koan folder follows.
 - **A unit's koan folder holds only its own tasks and its children's folders.** There are no phase folders or other special folders. Anything phase-like is a child unit (a `group` named `research`), so a name can only collide with a sibling, which the filesystem already prevents. Beyond the tasks `create` makes, how a unit's tasks are arranged is up to you.
@@ -349,7 +349,7 @@ Every problem shingi reports, by name. An error means the command changed nothin
 | `usage` | all | The command line is malformed: an unknown command or option, a missing or extra argument, `-i` together with arguments. |
 | `invalid-rules` | all but `version` | The rules file is missing, unreadable, or breaks [Fields](#fields). |
 | `unsupported-format` | all but `version` | The rules file's `schema` is one shingi doesn't support. |
-| `not-found` | `where`, `list` | The path named is not a unit: a folder on it doesn't exist, matches only ignoring case, or holds no `uow.json`. |
+| `not-found` | `where`, `list` | The path named is not a unit: a folder on it doesn't exist, matches only ignoring case, or holds no `uow.json`. Names the first folder on the path that isn't a unit, so a unit cut off by an ancestor's missing manifest says which. |
 | `invalid-name` | `create` | A segment of the path breaks [Names](#names). |
 | `parent-not-found` | `create` | The path has more than one segment, and its parent is not a unit. |
 | `name-taken` | `create` | An entry in the parent's folder — a unit, a plain folder, or a file — has the new name in another case, or a file has it exactly. |
@@ -366,6 +366,7 @@ Every problem shingi reports, by name. An error means the command changed nothin
 | `undefined-kind` | `where`, `list` | A unit's kind is no longer defined in the rules (see [Kinds](#kinds)). |
 | `missing-task` | `where`, `list` | No start task, or no done task, carries the unit's `id`. That task is reported as `null`. |
 | `duplicate-task` | `where`, `list` | More than one start task, or done task, carries it. That task is reported as `null`. |
+| `missing-manifest` | `list` | A folder the walk stops at, having no `uow.json`, directly holds a folder that has one. Its manifest is probably gone, and the units beneath it are cut off: `list` doesn't show them, and `where` on them is `not-found`, until its `uow.json` is put back. Their tasks show up as `orphan-task`, which this explains. |
 | `orphan-task` | `list` | A task tagged `shingi`, in the koan folders `list` reads, whose `extra.shingi-unit` names no unit it found: left by a `create` killed before it could report, or by a unit whose working folder was removed and whose tasks weren't. |
 | `parent-done` | `create` | The parent's done task was already done, so the new done task was not added to its blockers. |
 | `parent-unlinked` | `create` | The parent's start or done task could not be found exactly once — missing, duplicated, or the parent's `id` unreadable — so the link to it was left out, to be added by hand. |
