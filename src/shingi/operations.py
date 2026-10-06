@@ -29,15 +29,26 @@ def create(inp, config):
         raise OperationError(
             "unknown-kind", f"kind {kind!r} is not defined", {"kind": kind, "defined": sorted(rules.kinds)}
         )
-    if "/" in path:
-        # Nested units are the next slice.
-        raise OperationError("internal", "nested units are not built yet")
+    parent = units.parent_of(path)
+    parent_start = parent_done = None
+    if parent is not None:
+        try:
+            units.resolve(rules, parent)
+        except OperationError as error:
+            raise OperationError(
+                "parent-not-found",
+                f"parent {parent} is not a unit",
+                {"parent": parent, "missing": error.details["missing"]},
+            )
     folder = units.working_folder(rules, path)
     if (folder / units.MANIFEST).exists():
         raise OperationError("unit-exists", f"{path} already exists", {"manifest": str(folder / units.MANIFEST)})
+    if parent is not None:
+        parent_id = units.read_manifest(units.working_folder(rules, parent))["id"]
+        parent_start, parent_done = units.find_tasks(rules, parent, parent_id)
 
     unit_id = str(uuid.uuid4())
-    koan.create_batch({
+    made = koan.create_batch({
         "folder": units.koan_folder(rules, path),
         "tasks": [
             {
@@ -45,6 +56,7 @@ def create(inp, config):
                 "title": f"Start: {path}",
                 "tags": ["shingi", "shingi-start"],
                 "extra": {"source": "shingi-start", "shingi-unit": unit_id},
+                "blocked_by": [parent_start["id"]] if parent_start else [],
             },
             {
                 "ref": "done",
@@ -55,6 +67,8 @@ def create(inp, config):
             },
         ],
     })
+    if parent_done and parent_done["readiness"] != "done":
+        koan.block(parent_done["id"], [made["refs"]["done"]])
 
     folder.mkdir(exist_ok=True)
     title = inp.get("title") or path.rpartition("/")[2]

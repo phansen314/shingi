@@ -91,15 +91,24 @@ def state(start, done):
     return "not-started"
 
 
+def find_tasks(rules, path, unit_id):
+    """The unit's start and done tasks, as koan reports them, each None when not found."""
+    kfolder = koan_folder(rules, path)
+    tasks = koan.list_tasks(kfolder, recursive=False)
+    return match(tasks, kfolder, unit_id, "shingi-start"), match(tasks, kfolder, unit_id, "shingi-done")
+
+
+def parent_of(path):
+    return path.rpartition("/")[0] or None
+
+
 def read_unit(rules, path):
     """The unit object, as where reports it."""
     folder = working_folder(rules, path)
     manifest = read_manifest(folder)
     kfolder = koan_folder(rules, path)
-    tasks = koan.list_tasks(kfolder, recursive=False)
-    start = task_ref(match(tasks, kfolder, manifest["id"], "shingi-start"))
-    done = task_ref(match(tasks, kfolder, manifest["id"], "shingi-done"))
-    parent = path.rpartition("/")[0] or None
+    start, done = (task_ref(t) for t in find_tasks(rules, path, manifest["id"]))
+    parent = parent_of(path)
     return {
         "path": path,
         "id": manifest["id"],

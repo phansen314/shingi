@@ -45,9 +45,17 @@ def list_tasks(folder, recursive):
     raise failed("list", 1, error, f"koan list failed: {error['message']}")
 
 
-def create_batch(payload):
-    envelope = run("create-batch", payload)
+def write(call, payload):
+    envelope = run(call, payload)
     if not envelope["ok"]:
         error = envelope["error"]
-        raise failed("create-batch", 1, error, f"koan create-batch failed: {error['message']}")
+        raise failed(call, 1, error, f"koan {call} failed: {error['message']}")
     return envelope["result"]
+
+
+def create_batch(payload):
+    return write("create-batch", payload)
+
+
+def block(task_id, blockers):
+    return write("block", {"id": task_id, "blockers": blockers})
