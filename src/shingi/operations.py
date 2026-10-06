@@ -150,7 +150,15 @@ def create(inp, config):
             },
         ],
     })
-    if parent_done and parent_done["readiness"] != "done":
+    if parent_done and parent_done["readiness"] == "done":
+        warnings.append(units.warning(
+            "parent-done",
+            f"{parent}'s done task {parent_done['id']} is already done, so {path} doesn't block it",
+            path,
+            [parent_done["id"]],
+            {"parent": parent},
+        ))
+    elif parent_done:
         koan.block(parent_done["id"], [made["refs"]["done"]])
 
     folder.mkdir(exist_ok=True)

@@ -170,6 +170,15 @@ check "create refuses it" 1 '.error.kind == "unknown-kind" and .error.details.de
 cp "$tmp/rules.toml" "$rules"
 check "defined again" 0 '.warnings == []' -- where HOME-1/a
 
+echo "== a done parent"
+check "a parent to close" 0 '.ok' -- create HOME-4 group
+d4_start=$(jq .result.unit.start.id <<<"$out")
+d4_done=$(jq .result.unit.done.id <<<"$out")
+koan done "$d4_start"
+koan done "$d4_done"
+check "a late child warns parent-done" 0 '.warnings == [{kind: "parent-done", message: .warnings[0].message, unit: "HOME-4/late", ids: ['"$d4_done"'], details: {parent: "HOME-4"}}]' -- create HOME-4/late group
+expect "the parent's done task is left alone" '[[ $("$KOAN" show '"$d4_done"' | jq -c .result.tasks[0].blocked_by) == "[$d4_start]" ]]'
+
 echo "== missing tasks"
 cp -r "$HOME/work/HOME-1/a" "$HOME/work/HOME-1/copy"
 check "a copied unit has no tasks of its own" 0 '.result | .start == null and .done == null and .state == null' -- where HOME-1/copy

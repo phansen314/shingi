@@ -43,8 +43,21 @@ class NestingTest(ShingiTestCase):
         parent = self.create("HOME-1")
         self.koan("done", str(parent["start"]["id"]))
         self.koan("done", str(parent["done"]["id"]))
-        self.create("HOME-1/late")
+        status, out = self.shingi("create", "HOME-1/late", "group")
+        self.assertEqual(status, 0, out)
         self.assertEqual(self.koan_show(parent["done"]["id"])["blocked_by"], [parent["start"]["id"]])
+        self.assertEqual(out["warnings"], [{
+            "kind": "parent-done",
+            "message": out["warnings"][0]["message"],
+            "unit": "HOME-1/late",
+            "ids": [parent["done"]["id"]],
+            "details": {"parent": "HOME-1"},
+        }])
+
+    def test_an_open_parent_gives_no_warning(self):
+        self.create("HOME-1")
+        _, out = self.shingi("create", "HOME-1/a", "group")
+        self.assertEqual(out["warnings"], [])
 
     def test_a_missing_parent_is_parent_not_found(self):
         status, out = self.shingi("create", "HOME-1/a/b", "group")
