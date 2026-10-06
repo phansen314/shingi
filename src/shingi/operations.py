@@ -18,9 +18,12 @@ def version(inp, config):
 
 def where(inp, config):
     rules = rules_file.load(config)
-    path = inp["unit"]
-    units.check_path(path)
-    units.resolve(rules, path)
+    if "cwd" in inp:
+        path = units.resolve_directory(rules, inp["cwd"])
+    else:
+        path = inp["unit"]
+        units.check_path(path)
+        units.resolve(rules, path)
     return units.read_unit(rules, path), []
 
 

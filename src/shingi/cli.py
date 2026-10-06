@@ -1,5 +1,7 @@
 """The shingi command line (see cli-spec.md)."""
 
+import errno
+import os
 import sys
 
 from shingi import operations
@@ -12,7 +14,7 @@ EXIT_USAGE = 2
 # Each command: its operation, its positional arguments' fields, and its options' fields.
 COMMANDS = {
     "version": (operations.version, [], {}),
-    "where": (operations.where, ["unit"], {}),
+    "where": (operations.where, ["unit?"], {}),
     "list": (operations.list_units, ["unit?"], {}),
     "create": (operations.create, ["path", "kind"], {"--title": "title"}),
 }
@@ -57,7 +59,18 @@ def parse(argv):
     if len(args) < len(required):
         raise usage_error(f"missing <{required[len(args)]}>")
     inp.update(zip((name.rstrip("?") for name in positional), args))
+    if command == "where" and "unit" not in inp:
+        inp["cwd"] = current_directory()
     return operation, inp, config
+
+
+def current_directory():
+    try:
+        return os.getcwd()
+    except OSError as exc:
+        raise OperationError("io", f"the current directory can't be read: {exc.strerror}", {
+            "path": ".", "code": errno.errorcode.get(exc.errno),
+        })
 
 
 def run(argv):
@@ -65,7 +78,7 @@ def run(argv):
     try:
         operation, inp, config = parse(argv)
     except OperationError as error:
-        return failure(error), EXIT_USAGE
+        return failure(error), EXIT_USAGE if error.kind == "usage" else EXIT_ERROR
     try:
         result, warnings = operation(inp, config)
         return success(result, warnings), EXIT_OK

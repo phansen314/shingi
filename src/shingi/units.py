@@ -3,6 +3,7 @@
 import json
 import os
 import re
+from pathlib import Path
 
 from shingi import koan
 from shingi.envelope import OperationError
@@ -37,6 +38,26 @@ def resolve(rules, path):
 def path_key(path):
     """Sorts paths in path order: segment by segment, each by its bytes."""
     return [segment.encode() for segment in path.split("/")]
+
+
+def resolve_directory(rules, cwd):
+    """The path of the unit `cwd` is in: the deepest folder along it reached through units alone."""
+    real = Path(cwd).resolve()
+    if real != rules.working_root and rules.working_root not in real.parents:
+        raise no_unit(cwd, "outside-root", f"{cwd} is outside the working root")
+    folder, segments = rules.working_root, []
+    for segment in real.relative_to(rules.working_root).parts:
+        folder = folder / segment
+        if not (folder / MANIFEST).is_file():
+            break
+        segments.append(segment)
+    if not segments:
+        raise no_unit(cwd, "no-unit", f"{cwd} is in no unit")
+    return "/".join(segments)
+
+
+def no_unit(cwd, reason, message):
+    return OperationError("not-found", message, {"unit": None, "missing": None, "cwd": cwd, "reason": reason})
 
 
 def koan_folder(rules, path):
