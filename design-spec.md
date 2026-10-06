@@ -29,7 +29,7 @@ shingi is one building block among several, each owning one thing and talking to
 Two boundaries keep the blocks apart:
 
 - **A hook stays a plugin.** What a hook does that proves useful on every machine becomes a shared hook, not a shingi feature. shingi grows only where every unit, of every kind, on every machine, needs the same thing.
-- **A section of `uow.md` that a tool reads is a format.** While only people and agents read `uow.md`, prose is enough. Once ino or a hook depends on a section — a worktree path under `## Code` — that section is written down as a format in the skill, or the fact moves to [machine-readable facts](#machine-readable-facts). No tool parses prose and hopes.
+- **A section of `uow.md` that a tool reads is a format.** While only people and agents read `uow.md`, prose is enough. Once ino or a hook depends on a section, that section is written down as a format in the skill, or the fact moves to [machine-readable facts](#machine-readable-facts). No tool parses prose and hopes. `## Code`, where a unit's code is, is a format from the start (see [The notes file](#the-notes-file)).
 
 ## Non-goals
 
@@ -170,7 +170,9 @@ Beside it, `uow.md`, after the unit's setup task has run:
 
 ## Code
 
-Repository foo, branch HOME-12345-foo-1-schema, from origin/main.
+Repository: foo
+Branch: HOME-12345-foo-1-schema
+Base: origin/main
 Worktree: /home/you/repos/foo/.claude/worktrees/HOME-12345-foo-1-schema
 ```
 
@@ -187,10 +189,11 @@ Worktree: /home/you/repos/foo/.claude/worktrees/HOME-12345-foo-1-schema
 
 ### The notes file
 
-`uow.md` sits beside `uow.json` and is the unit's scratchpad. `create` writes it with the unit's title as its first heading and then `create`'s `--notes`, if given: whatever a front end or script wants recorded about the unit from the start. After that it belongs to whoever is working: append notes, rewrite it, link out to other files in the folder. A unit's setup tasks record what they decided here — the repository, the branch, the worktree — in whatever form the [skill](#claude-code) teaches.
+`uow.md` sits beside `uow.json` and is the unit's scratchpad. `create` writes it with the unit's title as its first heading and then `create`'s `--notes`, if given: whatever a front end or script wants recorded about the unit from the start. After that it belongs to whoever is working: append notes, rewrite it, link out to other files in the folder. A unit's setup tasks record what they decided here, under `## Code`.
 
 - **The title is the first line that starts with `# `.** A unit with no such line, or no `uow.md`, has the empty title, and tools show its path instead. Changing a title is editing that line.
-- **Nothing else in it is read by shingi.**
+- **`## Code` is a format.** A unit with code has a `## Code` section that opens with `Key: value` lines, one per line — `Repository`, `Branch`, `Base`, and `Worktree`, an absolute path — then any prose about the code, for people. One repository per unit: a `branch` is one branch of one repository, and a `group` has no `## Code`; its code is in its `branch` units. The [skill](#claude-code) teaches it, so every unit's notes say where its code is in the same form, and `grep '^Worktree: '` finds it.
+- **Nothing else in it is read by shingi,** and shingi doesn't read `## Code` either: people, agents, and later ino do.
 - **Never replaced.** `create` writes `uow.md` only when there is none.
 
 ### File format
@@ -230,16 +233,17 @@ A unit has no status of its own. Its progress is told by two koan tasks that `cr
 
 | Task | Tags | `extra` | Title | Blocked by |
 |---|---|---|---|---|
-| start | `shingi` | `{"source": "shingi-start", "shingi-unit": "<id>"}` | `Start: <path>` | the parent's start task, if there is a parent |
-| done | `shingi` | `{"source": "shingi-done", "shingi-unit": "<id>"}` | `Done: <path>` | its own start task |
+| start | `shingi`, `shingi-start` | `{"source": "shingi-start", "shingi-unit": "<id>"}` | `Start: <path>` | the parent's start task, if there is a parent |
+| done | `shingi`, `shingi-done` | `{"source": "shingi-done", "shingi-unit": "<id>"}` | `Done: <path>` | its own start task |
 
-and the new done task is added to the blockers of the parent's done task, so a parent can't be done while a child is open.
+and the new done task is added to the blockers of the parent's done task, so a parent's done task isn't ready while a child is open. koan lets any task be marked done at any time, blocked or not, so this is a signal, not a lock.
 
 - **Found by the unit's `id`, never stored.** Every task shingi makes is tagged `shingi`, so one `koan list` narrowed to that tag finds them all and nothing else. Among them, `extra.source` says the role and `extra.shingi-unit` the unit: a unit's start task is the one whose `source` is `shingi-start` and whose `shingi-unit` is the unit's `id`; its done task, the one whose `source` is `shingi-done`. A start and a done task from any query pair up by `shingi-unit` alone. The manifest records no task IDs.
+- **Tagged by role, for the frontier.** koan's `frontier` filters by tag, never by `extra`, so each task also carries its role as a tag: `koan frontier --tags-all shingi-start` is every unit ready to begin, and `--tags-all shingi-done` every unit ready to close. shingi reads only `extra`; the role tags are for people and agents.
 - **Looked for in the unit's koan folder.** Every command that reads tasks runs one `koan list` of tasks tagged `shingi`, done tasks included: `where` of the unit's koan folder alone, and `list` of the koan folder it starts from and everything under it (the koan root, with no argument). It matches them to units by `extra.shingi-unit`. A task outside its unit's koan folder isn't found.
 - **Titles are for people.** shingi writes them, and never reads them: renaming one changes nothing.
 - **Times are koan's.** A unit was created at its start task's `created_at`, started at its start task's `completed_at`, and done at its done task's `completed_at`.
-- **Marking them is the work's job.** Whoever begins a unit marks its start task done first; whoever finishes it marks its done task. Done covers cancelled, as everywhere in koan; a reason goes in the task's notes.
+- **The start task is the unit's gate.** Every other task in a unit waits on it, so a unit's tasks stay off the frontier until someone decides to begin it: a stack's next piece, or work specified now for later, waits there unseen. Whoever begins a unit marks its start task done first; whoever finishes it marks its done task. Done covers cancelled, as everywhere in koan; a reason goes in the task's notes.
 - **Every other task is added and wired by whoever adds it.** shingi makes and links only these two. The convention, taught by the skill: every other task in a unit — its setup task among them — is blocked by its start task and blocks its done task. Nothing checks this.
 - **Work order across units is ordinary task dependencies.** A unit in one repository that needs another's API change has its start task blocked by that unit's done task, across repositories or within a stack.
 
@@ -387,8 +391,8 @@ A story with seven branches in `foo` and one in `bar` is one `create … group` 
 
 A Claude Code plugin, served from this repository as koan's and sesshin's are, carrying one skill and no hooks. The skill teaches the hierarchy and the kinds; to ask `shingi where` instead of composing a path; the [front-end](#front-ends) steps for creating units; how to do a setup task and where in `uow.md` to record what it decided, so every unit's notes say where its code is in the same form; how to clean up after a `create` that failed, by undoing what its `partial` lists, or after an `orphan-task` warning; and how to coordinate:
 
-- **A coordinator** starts in a parent unit's working folder and runs `shingi list <unit>` for its picture of the work: each unit's koan folder for `koan frontier --folder`, and its notes for the worktree to start a session in. The session's job is the coordinator's to choose.
-- **A worker** is spawned with its own unit's `shingi where` facts in its first prompt, since it starts in a worktree whose `CLAUDE.md` is the repository's, not the unit's.
+- **A coordinator** starts in a parent unit's working folder and runs `shingi list <unit>` for its picture of the work: each unit's koan folder, and its notes for the worktree to start a session in. Its decisions are the shingi tasks on the frontier: `koan frontier --folder <koan folder> --tags-all shingi` is every unit under it ready to begin or to close. The session's job is the coordinator's to choose.
+- **A worker** is spawned with its own unit's `shingi where` facts in its first prompt, since it starts in a worktree whose `CLAUDE.md` is the repository's, not the unit's. Its next task is `koan frontier --folder <its koan folder> --recursive=false`: its own unit's, never a child's. It marks no task tagged `shingi` but its own unit's done task, and that only when it was asked to finish the unit.
 
 A plugin can't grant permissions, so `scripts/install.sh` adds rules letting `where`, `list`, `kinds`, and `version` run without a prompt, while `create`, which changes things, still asks; it backs `settings.json` up first and is safe to rerun.
 
