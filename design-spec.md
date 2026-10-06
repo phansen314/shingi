@@ -126,7 +126,7 @@ Unknown fields are an error, not ignored, so a typo says so instead of silently 
 
 - **A unit is a folder with a manifest.** A folder under the working root is a unit exactly when it holds a `uow.json`.
 - **Units nest only in units.** A unit's folder sits directly in the working root (a top-level unit) or directly in another unit's folder (its parent). A manifest anywhere else — in a plain folder, or deeper inside a unit's working material — is not a unit, and no walk finds it.
-- **Walks follow manifests.** A walk looks only in the working root and in units' folders, and goes no deeper than a folder with no `uow.json`: that branch of the walk stops there. So a unit's working material, however large, is never walked. The one look past a stop is a single level, for `list`'s [`missing-manifest`](#problems) warning: whether any folder directly inside it holds a `uow.json`.
+- **Walks follow manifests.** A walk looks only in the working root and in units' folders, and goes no deeper than a folder with no `uow.json`: that branch of the walk stops there. So a unit's working material, however large, is never walked.
 - **Children are found, never listed.** A parent records nothing about its children: they are the folders directly in its folder that hold a manifest.
 - **The path is mirrored.** A unit's koan folder and working folder are its path under the koan root and the working root. Both trees show the same hierarchy, but the working tree decides it: a unit exists when its manifest does, and its koan folder follows.
 - **A unit's koan folder holds only its own tasks and its children's folders.** There are no phase folders or other special folders. Anything phase-like is a child unit (a `group` named `research`), so a name can only collide with a sibling, which the filesystem already prevents. Beyond the tasks `create` makes, how a unit's tasks are arranged is up to you.
@@ -296,7 +296,7 @@ A unit is named on the command line by its path (`HOME-12345/foo-1-schema`), mat
 | `parent` | The parent's path; `null` for a top-level unit. |
 | `children` | Each child as `{ "path", "kind" }`, in [path order](#terms). |
 | `koan_folder`, `working_folder`, `notes_path` | Where its tasks, its working material, and its notes are. |
-| `start`, `done` | Its start and done tasks, as koan reports them: `id`, `readiness`, `created_at`, `completed_at`, with koan's meanings. `null` when the task isn't found exactly once, or koan failed (see [Problems](#problems)). |
+| `start`, `done` | Its start and done tasks, as koan reports them: `id`, `readiness`, `created_at`, `completed_at`, with koan's meanings. `null` when the task isn't found, or koan failed (see [Problems](#problems)); more than one, only after an outside change, reports the lowest ID. |
 
 ### where
 
@@ -304,7 +304,7 @@ A unit is named on the command line by its path (`HOME-12345/foo-1-schema`), mat
 
 With no unit, `where` names the unit the current directory is in, for an agent that starts with no context: the current directory, resolved like the working root to its real path, is taken as a path under the working root, and its unit is the deepest folder along it reached through units alone — every folder from the working root down to it holds a `uow.json`. A directory inside a unit's working material is in that unit. A current directory outside the working root, or in no unit, is `not-found`. A worktree is outside the working root, so this doesn't work from code; see [Unit from a worktree](#unit-from-a-worktree).
 
-`where` checks that every folder on the path holds a `uow.json`, reads the unit's own files and its children's manifests, and finds its start and done tasks with [one koan call](#start-and-done-tasks). When koan fails, the tasks are `null` and `where` warns [`koan-failed`](#problems), still reporting everything else. Likewise with a manifest it can't read: `id` and `kind` are `null`, its tasks can't be matched and are `null`, and `where` warns [`invalid-manifest`](#problems), as `list` does — still reporting its folders and notes, which are what fixing it needs. A path that holds no `uow.json` at all is `not-found`.
+`where` checks that every folder on the path holds a `uow.json`, reads the unit's own files and its children's manifests, and finds its start and done tasks with [one koan call](#start-and-done-tasks). When koan fails, the tasks are `null` and `where` warns [`koan-failed`](#problems), still reporting everything else. Likewise with a manifest it can't read: `id` and `kind` are `null`, its tasks can't be matched and are `null`, and `where` warns [`unsupported-manifest`](#problems), as `list` does — still reporting its folders and notes, which are what fixing it needs. A path that holds no `uow.json` at all is `not-found`.
 
 ### list
 
@@ -313,14 +313,14 @@ With no unit, `where` names the unit the current directory is in, for an agent t
 - **Always current.** `list` walks the tree each time it runs (see [The hierarchy](#the-hierarchy)), and stores nothing, so there is no generated file to fall out of date. A coordinator is told to run it, not to read a file.
 - **Any unit can be the root.** `shingi list HOME-12345/foo-split` describes the stack alone.
 - **One koan call,** of the koan folder it starts from, finds every unit's start and done tasks (see [Start and done tasks](#start-and-done-tasks)).
-- **Problems are warnings, never failures,** so one bad manifest doesn't hide the rest (see [Problems](#problems)). A folder whose `uow.json` is invalid is still a unit: it is listed with what can't be read as `null`, and the walk goes on into its children.
+- **Problems are warnings, never failures,** so one bad manifest doesn't hide the rest (see [Problems](#problems)). A folder whose `uow.json` can't be read is still a unit: it is listed with what can't be read as `null`, and the walk goes on into its children.
 
 ### create
 
 `shingi create <path> <kind> [--title <text>] [--notes <text>]`, or `shingi create -i <file>` with the same input as one JSON object, `{ "path", "kind", "title"?, "notes"? }` — make one unit. `result` is `{ "unit" }`, the new [unit](#output).
 
 1. **Check.** The name is valid; no entry in the parent's folder has it in another case, and no file has it exactly; no `uow.json` is there yet; the kind is defined; the parent (from the path) exists, or the path is a single segment. A failed check changes nothing.
-2. **Set up koan.** Make the unit's `id`, a fresh UUID. One `koan create-batch` makes the koan folder and the unit's [start and done tasks](#start-and-done-tasks): the start task, blocked by the parent's start task, and the done task, blocked by the start task. Then `koan block` adds the done task to the parent's done task's blockers, unless that task is already done, which is warned as [`parent-done`](#problems) and left alone. The parent's tasks are found by its `id`, as `where` finds them, before anything is made. Each link is made or left out on its own: when the parent's start task, or its done task, can't be found exactly once — the parent's `id` is unreadable, or no task or more than one carries it — that link is left out and warned as [`parent-unlinked`](#problems), never guessed, and the other is still made.
+2. **Set up koan.** Make the unit's `id`, a fresh UUID. One `koan create-batch` makes the koan folder and the unit's [start and done tasks](#start-and-done-tasks): the start task, blocked by the parent's start task, and the done task, blocked by the start task. Then `koan block` adds the done task to the parent's done task's blockers, unless that task is already done, which is warned as [`parent-done`](#problems) and left alone. The parent's tasks are found by its `id`, as `where` finds them, before anything is made. Each link is made or left out on its own: when the parent's start task, or its done task, can't be found — the parent's `id` is unreadable, or no task carries it — that link is left out and warned as [`parent-unlinked`](#problems), never guessed, and the other is still made.
 3. **Write the files.** Make the working folder if there is none, write `uow.md` if there is none, then write the manifest, with its `id`. The unit exists from this moment, and not before.
 
 `create` never resumes. One that fails after making something is an error with `partial`, as koan's multi-file writes are:
@@ -367,14 +367,12 @@ Every problem shingi reports, by name. An error means the command changed nothin
 
 | Kind | Commands | When |
 |---|---|---|
-| `invalid-manifest` | `where`, `list` | A unit's `uow.json` is not one JSON object, breaks [the manifest's fields](#the-manifest), or has a `schema` shingi doesn't support; `details.reason` is `not-json`, `invalid`, or `unsupported-format`. It is still a unit, with what can't be read `null`; with its `id` unknown, its tasks can't be matched, and `list` shows them as `orphan-task`, which this explains. |
+| `unsupported-manifest` | `where`, `list` | A unit's `uow.json` has a `schema` shingi doesn't support (see [Format versions](#format-versions)), or, after an outside change, can't be read at all. It is still a unit, with `id` and `kind` `null`; with its `id` unknown, its tasks can't be matched, and `list` shows them as `orphan-task`, which this explains. |
 | `undefined-kind` | `where`, `list` | A unit's kind is no longer defined in the rules (see [Kinds](#kinds)). |
 | `missing-task` | `where`, `list` | No start task, or no done task, in the unit's koan folder carries its `id`. That task is reported as `null`. |
-| `duplicate-task` | `where`, `list` | More than one start task, or done task, in it carries its `id`. That task is reported as `null`. |
-| `missing-manifest` | `list` | A folder the walk stops at, having no `uow.json`, directly holds a folder that has one. Its manifest is probably gone, and the units beneath it are cut off: `list` doesn't show them, and `where` on them is `not-found`, until its `uow.json` is put back. Their tasks show up as `orphan-task`, which this explains. |
 | `orphan-task` | `list` | A task tagged `shingi`, in the koan folders `list` reads, that matches no unit: its `extra.shingi-unit` names no unit `list` found, or names one whose koan folder it isn't in. Left by a `create` killed before it could report, by a unit whose working folder was removed and whose tasks weren't, or by a task moved out of its unit's koan folder. |
 | `parent-done` | `create` | The parent's done task was already done, so the new done task was not added to its blockers. |
-| `parent-unlinked` | `create` | The parent's start or done task could not be found exactly once — missing, duplicated, or the parent's `id` unreadable — so the link to it was left out, to be added by hand; a link to the other was still made. |
+| `parent-unlinked` | `create` | The parent's start or done task could not be found — missing, or the parent's `id` unreadable — so the link to it was left out, to be added by hand; a link to the other was still made. |
 | `notes-kept` | `create` | The working folder already held a `uow.md`, which was kept, so `--title` and `--notes` were not written. |
 | `koan-failed` | `where`, `list` | koan could not be run, or returned an error; every task is `null`, and everything else is still reported. |
 | `koan-warning` | `where`, `list`, `create` | koan's `list` succeeded with a warning of its own, passed on in `details`. An unusable or unreadable task file can hide a start or done task, so while one is present, `missing-task` or `parent-unlinked` may be wrong. |
