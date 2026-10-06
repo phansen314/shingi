@@ -302,7 +302,7 @@ A unit is named on the command line by its path (`HOME-12345/foo-1-schema`), mat
 
 `shingi where <unit>` — everything about one unit. `result` is the [unit](#output).
 
-`where` reads the unit's files, its parent's, and its children's, and finds its start and done tasks with [one koan call](#start-and-done-tasks). When koan fails, the tasks are `null` and `where` warns [`koan-failed`](#problems), still reporting everything else.
+`where` reads the unit's files, its parent's, and its children's, and finds its start and done tasks with [one koan call](#start-and-done-tasks). When koan fails, the tasks are `null` and `where` warns [`koan-failed`](#problems), still reporting everything else. So with a manifest it can't read: `id` and `kind` are `null`, its tasks can't be matched and are `null`, and `where` warns [`invalid-manifest`](#problems), as `list` does — still reporting its folders and notes, which are what fixing it needs. A path that holds no `uow.json` at all is `not-found`.
 
 ### list
 
@@ -349,9 +349,8 @@ Every problem shingi reports, by name. An error means the command changed nothin
 |---|---|---|
 | `usage` | all | The command line is malformed: an unknown command or option, a missing or extra argument, `-i` together with arguments. |
 | `invalid-rules` | all | The rules file is missing, unreadable, or breaks [Fields](#fields). |
-| `unsupported-format` | all; `where` | The rules file's `schema` is one shingi doesn't support; or, for `where`, the named unit's manifest's. |
+| `unsupported-format` | all | The rules file's `schema` is one shingi doesn't support. |
 | `not-found` | `where`, `list` | The path named is not a unit: a folder on it doesn't exist, matches only ignoring case, or holds no `uow.json`. |
-| `invalid-manifest` | `where` | The named unit's `uow.json` is not one JSON object, or breaks [the manifest's fields](#the-manifest). |
 | `invalid-name` | `create` | A segment of the path breaks [Names](#names). |
 | `parent-not-found` | `create` | The path has more than one segment, and its parent is not a unit. |
 | `name-taken` | `create` | A sibling's name differs from the new name only in case. |
@@ -364,7 +363,7 @@ Every problem shingi reports, by name. An error means the command changed nothin
 
 | Kind | Commands | When |
 |---|---|---|
-| `invalid-manifest` | `where`, `list` | A unit's `uow.json`, other than the one `where` names, is invalid or has an unsupported `schema`. It is still a unit, with what can't be read `null`; with its `id` unknown, its tasks show up as `orphan-task`, which this explains. |
+| `invalid-manifest` | `where`, `list` | A unit's `uow.json` is not one JSON object, breaks [the manifest's fields](#the-manifest), or has a `schema` shingi doesn't support; `details.reason` is `not-json`, `invalid`, or `unsupported-format`. It is still a unit, with what can't be read `null`; with its `id` unknown, its tasks can't be matched, and `list` shows them as `orphan-task`, which this explains. |
 | `undefined-kind` | `where`, `list` | A unit's kind is no longer defined in the rules (see [Kinds](#kinds)). |
 | `missing-task` | `where`, `list` | No start task, or no done task, carries the unit's `id`. That task is reported as `null`. |
 | `duplicate-task` | `where`, `list` | More than one start task, or done task, carries it. That task is reported as `null`. |
@@ -406,7 +405,7 @@ The same skill, linked into OpenCode's skills directory as koan's is, and the sa
 
 ## Format versions
 
-`shingi.toml` and every `uow.json` carry `schema`, each versioned on its own. A rules file with a `schema` shingi doesn't support is an error for every command; an unsupported manifest is an error for `where` on that unit, and a warning from `list` (see [Problems](#problems)). Before 1.0, as koan's and sesshin's formats, a schema may change in place: a change bumps shingi's minor version, and its release notes say how to update existing files. Kinds are configuration: adding, changing, or removing one is never a schema change.
+`shingi.toml` and every `uow.json` carry `schema`, each versioned on its own. A rules file with a `schema` shingi doesn't support is an error for every command; an unsupported manifest is a warning from `where` and `list`, which still report the unit (see [Problems](#problems)). Before 1.0, as koan's and sesshin's formats, a schema may change in place: a change bumps shingi's minor version, and its release notes say how to update existing files. Kinds are configuration: adding, changing, or removing one is never a schema change.
 
 ## Future work
 
