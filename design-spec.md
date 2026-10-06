@@ -6,7 +6,7 @@ Give every piece of work on this machine one name and one place. A **unit of wor
 
 - **One hierarchy, mirrored.** A unit's path is the same under every root: the koan root holds its tasks, the working root its working material. Nesting is the hierarchy; nothing else records it.
 - **One shape for every unit.** Every unit has the same two files, as a koan task does: `uow.json`, the facts tools rely on, and `uow.md`, its notes; and every manifest has the same fields. What differs between a story and a branch is its *kind*, a label. Once a unit exists, every command treats every kind alike.
-- **Store only what can't be derived, and stays true.** A unit's name, parent, children, and folders follow from where its manifest sits; when it was started and finished, from its tasks in koan. The manifest holds only its format version, the unit's identity, and its kind, written once and never updated.
+- **Store only what can't be derived, and stays true.** A unit's name, parent, children, and folders follow from where its manifest sits; when it was started and finished, from its tasks in koan. The manifest holds only its format version, the unit's identity, and its kind, the label chosen when it was made; all three are written once and never updated.
 - **shingi makes the structure, not the work.** `create` makes a unit's folders, its two files, and its start and done tasks, and nothing else. Its other tasks — setting it up, doing it, reviewing it — are added by a front end, an agent, or a person. Running the work, tracking it, and finishing it are other tools' jobs.
 - **Conventions, not rules.** Any kind may hold any kind. A kind suggests the kinds it usually holds, but shingi refuses only what would make a new unit wrong from the start — a name koan or a sibling rules out, a missing parent, a kind the rules don't define — and never how units nest.
 - **Tell, never enforce.** shingi refuses only while creating; after that it only tells: `where` and `list` warn about what they find, and fix nothing. A misplaced task or file is cheap to move when someone notices it.
@@ -85,7 +85,7 @@ shingi needs Python 3.11 or later, for `tomllib`, and is installed into its own 
 | A unit's manifest, notes, and working material | Its working folder: the working root plus its path. |
 | A unit's code | Wherever its setup tasks put it, as recorded in its notes. shingi doesn't know. |
 
-No environment variable sets a location or a rule: a harness's environment is whatever started it, so a setting there could reach one process and not another. `--config <file>` overrides the rules file for one command, for tests and trials.
+No shingi environment variable sets a location or a rule — only the platform's own config location, as for koan: a harness's environment is whatever started it, so a setting there could reach one process and not another. `--config <file>` overrides the rules file for one command, for tests and trials.
 
 ## The rules file
 
@@ -118,7 +118,7 @@ suggests    = []
 | `kind.<name>.description` | string | What the kind is for, one line, for [`kinds`](#kinds-1) to report. Optional. |
 | `kind.<name>.suggests` | array of strings | The kinds a unit of this kind usually holds, for a front end to propose first. Each names a defined kind. Optional; default `[]`. |
 
-Unknown fields are an error, not ignored, so a typo says so instead of silently doing nothing. Any error in the rules file is an error for every command.
+Unknown fields are an error, not ignored, so a typo says so instead of silently doing nothing. Any error in the rules file is an error for every command but `version`, which doesn't read it. A missing rules file is `invalid-rules` too, and its message points to the example above, which the [skill](#claude-code) and the README carry; there is no `init`.
 
 ## The hierarchy
 
@@ -183,7 +183,7 @@ Worktree: /home/you/repos/foo/.claude/worktrees/HOME-12345-foo-1-schema
 | Name, path | Where the manifest sits. Renaming a folder can't leave a stale name behind. |
 | Parent, children | The nesting. |
 | Koan folder, working folder | The roots plus the path. |
-| Title | The first `# ` heading of `uow.md`. |
+| Title | The first non-blank line of `uow.md`, if it is a `# ` heading. |
 | When it was created, started, and done | Its start and done tasks in koan (see [Start and done tasks](#start-and-done-tasks)). |
 | Where its code is | Nothing shingi reads: its notes say, for people and agents. |
 
@@ -191,7 +191,7 @@ Worktree: /home/you/repos/foo/.claude/worktrees/HOME-12345-foo-1-schema
 
 `uow.md` sits beside `uow.json` and is the unit's scratchpad. `create` writes it with the unit's title as its first heading and then `create`'s `--notes`, if given: whatever a front end or script wants recorded about the unit from the start. After that it belongs to whoever is working: append notes, rewrite it, link out to other files in the folder. A unit's setup tasks record what they decided here, under `## Code`.
 
-- **The title is the first line that starts with `# `.** A unit with no such line, or no `uow.md`, has the empty title, and tools show its path instead. Changing a title is editing that line.
+- **The title is the first non-blank line, if it starts with `# `.** Only that line is looked at, so a `# ` line further down, in a code block or anywhere else, is never taken for it. A unit whose first non-blank line is something else, or with no `uow.md`, has the empty title, and tools show its path instead. Changing a title is editing that line.
 - **`## Code` is a format.** A unit with code has a `## Code` section that opens with `Key: value` lines, one per line — `Repository`, `Branch`, `Base`, and `Worktree`, an absolute path — then any prose about the code, for people. One repository per unit: a `branch` is one branch of one repository, and a `group` has no `## Code`; its code is in its `branch` units. The [skill](#claude-code) teaches it, so every unit's notes say where its code is in the same form, and `grep '^Worktree: '` finds it.
 - **Nothing else in it is read by shingi,** and shingi doesn't read `## Code` either: people, agents, and later ino do.
 - **Never replaced.** `create` writes `uow.md` only when there is none.
@@ -291,7 +291,7 @@ A unit is named on the command line by its path (`HOME-12345/foo-1-schema`), mat
 |---|---|
 | `path` | The unit's path. |
 | `id`, `kind` | From its manifest; `null` when the manifest can't be read. |
-| `title` | The first `# ` heading of its `uow.md`; `""` when there is none (see [The notes file](#the-notes-file)). |
+| `title` | The `# ` heading on the first non-blank line of its `uow.md`; `""` when there is none (see [The notes file](#the-notes-file)). |
 | `state` | `not-started`, `started`, or `done`: derived from its start and done tasks, never stored. `null` when either task is. |
 | `parent` | The parent's path; `null` for a top-level unit. |
 | `children` | Each child as `{ "path", "kind" }`, in path order. |
@@ -350,8 +350,8 @@ Every problem shingi reports, by name. An error means the command changed nothin
 | Kind | Commands | When |
 |---|---|---|
 | `usage` | all | The command line is malformed: an unknown command or option, a missing or extra argument, `-i` together with arguments. |
-| `invalid-rules` | all | The rules file is missing, unreadable, or breaks [Fields](#fields). |
-| `unsupported-format` | all | The rules file's `schema` is one shingi doesn't support. |
+| `invalid-rules` | all but `version` | The rules file is missing, unreadable, or breaks [Fields](#fields). |
+| `unsupported-format` | all but `version` | The rules file's `schema` is one shingi doesn't support. |
 | `not-found` | `where`, `list` | The path named is not a unit: a folder on it doesn't exist, matches only ignoring case, or holds no `uow.json`. |
 | `invalid-name` | `create` | A segment of the path breaks [Names](#names). |
 | `parent-not-found` | `create` | The path has more than one segment, and its parent is not a unit. |
