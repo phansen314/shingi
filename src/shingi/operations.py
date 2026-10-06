@@ -34,7 +34,7 @@ def where(inp, config):
         path = inp["unit"]
         units.check_path(path)
         units.resolve(rules, path)
-    return units.read_unit(rules, path), []
+    return units.read_unit(rules, path)
 
 
 def list_units(inp, config):
@@ -43,22 +43,25 @@ def list_units(inp, config):
     if root is not None:
         units.check_path(root)
         units.resolve(rules, root)
-    paths = units.walk(rules, root)
-    manifests = {path: units.read_manifest(units.working_folder(rules, path)) for path in paths}
-    by_id = {m["id"]: path for path, m in manifests.items()}
+    manifests, warnings = {}, []
+    for path in units.walk(rules, root):
+        manifests[path], problems = units.check_manifest(rules, path)
+        warnings += problems
+    by_id = {m["id"]: path for path, m in manifests.items() if m is not None}
 
     folder = rules.koan_root if root is None else units.koan_folder(rules, root)
     tasks = koan.list_tasks(folder, recursive=True)
     found = []
     for path, manifest in manifests.items():
-        kfolder = units.koan_folder(rules, path)
-        start = units.match(tasks, kfolder, manifest["id"], "shingi-start")
-        done = units.match(tasks, kfolder, manifest["id"], "shingi-done")
+        start = done = None
+        if manifest is not None:
+            kfolder = units.koan_folder(rules, path)
+            start = units.match(tasks, kfolder, manifest["id"], "shingi-start")
+            done = units.match(tasks, kfolder, manifest["id"], "shingi-done")
         found.append(units.build_unit(rules, path, manifest, start, done))
 
-    warnings = [orphan_task(rules, task, by_id) for task in tasks if not claimed(rules, task, by_id)]
-    warnings.sort(key=lambda w: (w["unit"] is not None, units.path_key(w["unit"] or ""), w["ids"]))
-    return {"root": root, "units": found}, warnings
+    warnings += [orphan_task(rules, task, by_id) for task in tasks if not claimed(rules, task, by_id)]
+    return {"root": root, "units": found}, units.sort_warnings(warnings)
 
 
 def claimed(rules, task, by_id):
@@ -109,9 +112,22 @@ def create(inp, config):
     folder = units.working_folder(rules, path)
     if (folder / units.MANIFEST).exists():
         raise OperationError("unit-exists", f"{path} already exists", {"manifest": str(folder / units.MANIFEST)})
+    warnings = []
     if parent is not None:
-        parent_id = units.read_manifest(units.working_folder(rules, parent))["id"]
-        parent_start, parent_done = units.find_tasks(rules, parent, parent_id)
+        parent_manifest, _ = units.check_manifest(rules, parent)
+        if parent_manifest is None:
+            reason = "unsupported-manifest"
+        else:
+            reason = "missing-task"
+            parent_start, parent_done = units.find_tasks(rules, parent, parent_manifest["id"])
+        for role, task in (("start", parent_start), ("done", parent_done)):
+            if task is None:
+                warnings.append(units.warning(
+                    "parent-unlinked",
+                    f"{parent}'s {role} task wasn't found, so {path} isn't linked to it",
+                    path,
+                    details={"parent": parent, "role": role, "reason": reason},
+                ))
 
     unit_id = str(uuid.uuid4())
     made = koan.create_batch({
@@ -144,7 +160,8 @@ def create(inp, config):
     except FileExistsError:
         pass
     write_manifest(folder, {"schema": 1, "id": unit_id, "kind": kind})
-    return {"unit": units.read_unit(rules, path)}, []
+    unit, read_warnings = units.read_unit(rules, path)
+    return {"unit": unit}, units.sort_warnings(warnings + read_warnings)
 
 
 def write_manifest(folder, manifest):

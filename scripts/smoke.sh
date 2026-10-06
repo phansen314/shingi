@@ -147,11 +147,24 @@ rm -rf "$HOME/work/HOME-2"
 check "a removed unit's tasks are orphans" 0 '[.result.units[].path] == ["HOME-1", "HOME-1/a", "HOME-1/b"] and [.warnings[] | .kind, .details.folder] == ["orphan-task", "/work/HOME-2", "orphan-task", "/work/HOME-2"]' -- list
 check "list of a unit that isn't one" 1 '.error.kind == "not-found"' -- list HOME-2
 
+echo "== a broken manifest"
+cp "$HOME/work/HOME-1/b/uow.json" "$tmp/b.json"
+echo '{' >"$HOME/work/HOME-1/b/uow.json"
+check "where warns and reports what it can" 0 '.result | .id == null and .kind == null and .state == null and .title == "b"' -- where HOME-1/b
+check "the warning" 0 '.warnings == [{kind: "unsupported-manifest", message: .warnings[0].message, unit: "HOME-1/b", ids: [], details: {path: "'"$HOME"'/work/HOME-1/b/uow.json", reason: "corrupt"}}]' -- where HOME-1/b
+check "a child's kind is null" 0 '.result.children[1] == {path: "HOME-1/b", kind: null} and .warnings == []' -- where HOME-1
+check "list goes on past it" 0 '[.result.units[].path] == ["HOME-1", "HOME-1/a", "HOME-1/b"] and [.warnings[].kind] == ["orphan-task", "orphan-task", "unsupported-manifest"]' -- list HOME-1
+echo '{"schema": 2, "id": "x", "kind": "group"}' >"$HOME/work/HOME-1/b/uow.json"
+check "a newer schema" 0 '.warnings[0].details.reason == "unsupported-format"' -- where HOME-1/b
+check "create under it leaves both links out" 0 '[.warnings[] | .kind, .details.role] == ["parent-unlinked", "start", "parent-unlinked", "done"]' -- create HOME-1/b/x group
+cp "$tmp/b.json" "$HOME/work/HOME-1/b/uow.json"
+check "fixed" 0 '.result.kind == "branch" and .warnings == []' -- where HOME-1/b
+
 echo "== finishing"
 koan done "$(jq .result.start.id <<<"$("$SHINGI" where HOME-1/a)")"
 koan done "$a_done"
 check "a done" 0 '.result.state == "done"' -- where HOME-1/a
-check "what's left" 0 '[.result.units[] | select(.state != "done") | .path] == ["HOME-1", "HOME-1/b"]' -- list HOME-1
+check "what's left" 0 '[.result.units[] | select(.state != "done") | .path] == ["HOME-1", "HOME-1/b", "HOME-1/b/x"]' -- list HOME-1
 
 echo
 echo "$pass passed, $fail failed"
