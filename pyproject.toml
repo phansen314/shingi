@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shingi"
+version = "0.1.0"
+description = "Units of work: one name and one place for every piece of work."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+shingi = "shingi.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
