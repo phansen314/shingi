@@ -113,10 +113,11 @@ def no_duplicate_keys(pairs):
 
 
 def check_manifest(rules, path):
-    """The unit's manifest and its warnings: None and unsupported-manifest when it is unusable."""
+    """The unit's manifest and its warnings: None and unsupported-manifest when it is unusable,
+    undefined-kind when its kind is no longer in the rules."""
     folder = working_folder(rules, path)
     try:
-        return read_manifest(folder), []
+        manifest = read_manifest(folder)
     except UnusableManifest as exc:
         return None, [warning(
             "unsupported-manifest",
@@ -124,6 +125,14 @@ def check_manifest(rules, path):
             path,
             details={"path": str(folder / MANIFEST), "reason": exc.reason},
         )]
+    if manifest["kind"] not in rules.kinds:
+        return manifest, [warning(
+            "undefined-kind",
+            f"{path}: kind {manifest['kind']!r} is not defined in the rules",
+            path,
+            details={"kind": manifest["kind"]},
+        )]
+    return manifest, []
 
 
 def kind_of(folder):

@@ -160,6 +160,16 @@ check "create under it leaves both links out" 0 '[.warnings[] | .kind, .details.
 cp "$tmp/b.json" "$HOME/work/HOME-1/b/uow.json"
 check "fixed" 0 '.result.kind == "branch" and .warnings == []' -- where HOME-1/b
 
+echo "== an undefined kind"
+rules=$XDG_CONFIG_HOME/shingi/shingi.toml
+cp "$rules" "$tmp/rules.toml"
+sed -i -e '/^\[kind.branch\]/,$d' -e 's/"group", "branch"/"group"/' "$rules"
+check "where warns and reports the kind as stored" 0 '.result.kind == "branch" and .warnings == [{kind: "undefined-kind", message: .warnings[0].message, unit: "HOME-1/a", ids: [], details: {kind: "branch"}}]' -- where HOME-1/a
+check "list warns once per unit" 0 '[.warnings[] | select(.kind == "undefined-kind") | .unit] == ["HOME-1/a", "HOME-1/b"]' -- list HOME-1
+check "create refuses it" 1 '.error.kind == "unknown-kind" and .error.details.defined == ["group"]' -- create HOME-3 branch
+cp "$tmp/rules.toml" "$rules"
+check "defined again" 0 '.warnings == []' -- where HOME-1/a
+
 echo "== finishing"
 koan done "$(jq .result.start.id <<<"$("$SHINGI" where HOME-1/a)")"
 koan done "$a_done"
