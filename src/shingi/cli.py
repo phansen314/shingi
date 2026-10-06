@@ -13,6 +13,7 @@ EXIT_USAGE = 2
 COMMANDS = {
     "version": (operations.version, [], {}),
     "where": (operations.where, ["unit"], {}),
+    "list": (operations.list_units, ["unit?"], {}),
     "create": (operations.create, ["path", "kind"], {"--title": "title"}),
 }
 
@@ -52,9 +53,10 @@ def parse(argv):
             args.append(token)
     if len(args) > len(positional):
         raise usage_error(f"unexpected argument {args[len(positional)]!r}", args[len(positional)])
-    if len(args) < len(positional):
-        raise usage_error(f"missing <{positional[len(args)]}>")
-    inp.update(zip(positional, args))
+    required = [name for name in positional if not name.endswith("?")]
+    if len(args) < len(required):
+        raise usage_error(f"missing <{required[len(args)]}>")
+    inp.update(zip((name.rstrip("?") for name in positional), args))
     return operation, inp, config
 
 
@@ -65,7 +67,8 @@ def run(argv):
     except OperationError as error:
         return failure(error), EXIT_USAGE
     try:
-        return success(operation(inp, config)), EXIT_OK
+        result, warnings = operation(inp, config)
+        return success(result, warnings), EXIT_OK
     except OperationError as error:
         return failure(error), EXIT_ERROR
     except Exception as exc:
@@ -80,4 +83,7 @@ def main(argv=None):
     if not envelope["ok"]:
         error = envelope["error"]
         print(f"shingi: {error['kind']}: {error['message']}", file=sys.stderr)
+    elif envelope["warnings"]:
+        count = len(envelope["warnings"])
+        print(f"shingi: {count} warning{'s' * (count != 1)} (see .warnings in the output)", file=sys.stderr)
     return status

@@ -1,4 +1,7 @@
-"""Operations: the domain layer (see operations.md)."""
+"""Operations: the domain layer (see operations.md).
+
+Each operation takes its input and the --config file, and returns its result and its warnings.
+"""
 
 import json
 import os
@@ -10,7 +13,7 @@ from shingi.envelope import OperationError
 
 
 def version(inp, config):
-    return {"version": package_version("shingi")}
+    return {"version": package_version("shingi")}, []
 
 
 def where(inp, config):
@@ -18,7 +21,57 @@ def where(inp, config):
     path = inp["unit"]
     units.check_path(path)
     units.resolve(rules, path)
-    return units.read_unit(rules, path)
+    return units.read_unit(rules, path), []
+
+
+def list_units(inp, config):
+    rules = rules_file.load(config)
+    root = inp.get("unit")
+    if root is not None:
+        units.check_path(root)
+        units.resolve(rules, root)
+    paths = units.walk(rules, root)
+    manifests = {path: units.read_manifest(units.working_folder(rules, path)) for path in paths}
+    by_id = {m["id"]: path for path, m in manifests.items()}
+
+    folder = rules.koan_root if root is None else units.koan_folder(rules, root)
+    tasks = koan.list_tasks(folder, recursive=True)
+    found = []
+    for path, manifest in manifests.items():
+        kfolder = units.koan_folder(rules, path)
+        start = units.match(tasks, kfolder, manifest["id"], "shingi-start")
+        done = units.match(tasks, kfolder, manifest["id"], "shingi-done")
+        found.append(units.build_unit(rules, path, manifest, start, done))
+
+    warnings = [orphan_task(rules, task, by_id) for task in tasks if not claimed(rules, task, by_id)]
+    warnings.sort(key=lambda w: (w["unit"] is not None, units.path_key(w["unit"] or ""), w["ids"]))
+    return {"root": root, "units": found}, warnings
+
+
+def claimed(rules, task, by_id):
+    """Whether `task` is a start or done task of a unit list found, in that unit's koan folder."""
+    path = by_id.get(task["extra"].get("shingi-unit"))
+    return (
+        path is not None
+        and task["folder"] == units.koan_folder(rules, path)
+        and task["extra"].get("source") in ("shingi-start", "shingi-done")
+    )
+
+
+def orphan_task(rules, task, by_id):
+    extra = task["extra"]
+    source, unit_id = extra.get("source"), extra.get("shingi-unit")
+    return {
+        "kind": "orphan-task",
+        "message": f"task {task['id']} in {task['folder']} matches no unit",
+        "unit": by_id.get(unit_id),
+        "ids": [task["id"]],
+        "details": {
+            "folder": task["folder"],
+            "source": source if isinstance(source, str) else None,
+            "shingi_unit": unit_id if isinstance(unit_id, str) else None,
+        },
+    }
 
 
 def create(inp, config):
@@ -78,7 +131,7 @@ def create(inp, config):
     except FileExistsError:
         pass
     write_manifest(folder, {"schema": 1, "id": unit_id, "kind": kind})
-    return {"unit": units.read_unit(rules, path)}
+    return {"unit": units.read_unit(rules, path)}, []
 
 
 def write_manifest(folder, manifest):

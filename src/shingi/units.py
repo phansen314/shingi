@@ -34,6 +34,11 @@ def resolve(rules, path):
             )
 
 
+def path_key(path):
+    """Sorts paths in path order: segment by segment, each by its bytes."""
+    return [segment.encode() for segment in path.split("/")]
+
+
 def koan_folder(rules, path):
     return f"{rules.koan_root}/{path}"
 
@@ -58,12 +63,27 @@ def read_title(folder):
     return ""
 
 
+def child_folders(folder):
+    """The unit folders directly in `folder`, in path order."""
+    return [
+        entry for entry in sorted(folder.iterdir(), key=lambda e: e.name.encode())
+        if not entry.name.startswith(".") and (entry / MANIFEST).is_file()
+    ]
+
+
 def children(rules, path):
-    folder = working_folder(rules, path)
-    found = []
-    for entry in sorted(folder.iterdir(), key=lambda e: e.name.encode()):
-        if not entry.name.startswith(".") and (entry / MANIFEST).is_file():
-            found.append({"path": f"{path}/{entry.name}", "kind": read_manifest(entry)["kind"]})
+    return [
+        {"path": f"{path}/{entry.name}", "kind": read_manifest(entry)["kind"]}
+        for entry in child_folders(working_folder(rules, path))
+    ]
+
+
+def walk(rules, path=None):
+    """`path` and every unit beneath it, or every unit, in path order."""
+    found = [] if path is None else [path]
+    folder = rules.working_root if path is None else working_folder(rules, path)
+    for entry in child_folders(folder):
+        found += walk(rules, entry.name if path is None else f"{path}/{entry.name}")
     return found
 
 
@@ -104,20 +124,23 @@ def parent_of(path):
 
 def read_unit(rules, path):
     """The unit object, as where reports it."""
+    manifest = read_manifest(working_folder(rules, path))
+    return build_unit(rules, path, manifest, *find_tasks(rules, path, manifest["id"]))
+
+
+def build_unit(rules, path, manifest, start, done):
+    """The unit object, from its manifest and its start and done tasks as koan reports them."""
     folder = working_folder(rules, path)
-    manifest = read_manifest(folder)
-    kfolder = koan_folder(rules, path)
-    start, done = (task_ref(t) for t in find_tasks(rules, path, manifest["id"]))
-    parent = parent_of(path)
+    start, done = task_ref(start), task_ref(done)
     return {
         "path": path,
         "id": manifest["id"],
         "kind": manifest["kind"],
         "title": read_title(folder),
         "state": state(start, done),
-        "parent": parent,
+        "parent": parent_of(path),
         "children": children(rules, path),
-        "koan_folder": kfolder,
+        "koan_folder": koan_folder(rules, path),
         "working_folder": str(folder),
         "notes_path": str(folder / NOTES),
         "start": start,
