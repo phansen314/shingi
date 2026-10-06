@@ -170,6 +170,12 @@ check "create refuses it" 1 '.error.kind == "unknown-kind" and .error.details.de
 cp "$tmp/rules.toml" "$rules"
 check "defined again" 0 '.warnings == []' -- where HOME-1/a
 
+echo "== missing tasks"
+cp -r "$HOME/work/HOME-1/a" "$HOME/work/HOME-1/copy"
+check "a copied unit has no tasks of its own" 0 '.result | .start == null and .done == null and .state == null' -- where HOME-1/copy
+check "warned per role" 0 '[.warnings[] | .kind, .details.role] == ["missing-task", "start", "missing-task", "done"]' -- where HOME-1/copy
+rm -rf "$HOME/work/HOME-1/copy"
+
 echo "== finishing"
 koan done "$(jq .result.start.id <<<"$("$SHINGI" where HOME-1/a)")"
 koan done "$a_done"

@@ -58,6 +58,7 @@ def list_units(inp, config):
             kfolder = units.koan_folder(rules, path)
             start = units.match(tasks, kfolder, manifest["id"], "shingi-start")
             done = units.match(tasks, kfolder, manifest["id"], "shingi-done")
+            warnings += units.missing_tasks(path, start, done)
         found.append(units.build_unit(rules, path, manifest, start, done))
 
     warnings += [orphan_task(rules, task, by_id) for task in tasks if not claimed(rules, task, by_id)]

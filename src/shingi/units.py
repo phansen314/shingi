@@ -231,7 +231,18 @@ def read_unit(rules, path):
     start = done = None
     if manifest is not None:
         start, done = find_tasks(rules, path, manifest["id"])
+        warnings += missing_tasks(path, start, done)
     return build_unit(rules, path, manifest, start, done), warnings
+
+
+def missing_tasks(path, start, done):
+    """A missing-task warning for each of the unit's start and done tasks that wasn't found."""
+    return [
+        warning("missing-task", f"{path}: no {role} task in its koan folder carries its id", path,
+                details={"role": role})
+        for role, task in (("start", start), ("done", done))
+        if task is None
+    ]
 
 
 def build_unit(rules, path, manifest, start, done):
