@@ -1,0 +1,420 @@
+# shingi design spec
+
+## Goals
+
+Give every piece of work on this machine one name and one place. A **unit of work** is a node in a hierarchy — a Jira story, the branches it is split into, a group of related work, a long-lived project — and its path names its tasks in koan and its working folder on disk at once. shingi records each unit in a small manifest beside a notes file, creates units in place with a start and a done task in koan, and tells you or your agent where everything for one of them lives.
+
+- **One hierarchy, mirrored.** A unit's path is the same under every root: the koan root holds its tasks, the working root its working material. Nesting is the hierarchy; nothing else records it.
+- **One shape for every unit.** Every unit has the same two files, as a koan task does: `uow.json`, the facts tools rely on, and `uow.md`, its notes; and every manifest has the same fields. What differs between a story and a branch is its *kind*, a label. Once a unit exists, every command treats every kind alike.
+- **Store only what can't be derived, and stays true.** A unit's name, parent, children, and folders follow from where its manifest sits; when it was started and finished, from its tasks in koan. The manifest holds only the unit's identity and its kind, written once and never updated.
+- **shingi makes the structure, not the work.** `create` makes a unit's folders, its two files, and its start and done tasks, and nothing else. Its other tasks — setting it up (choosing a repository, proposing branch slugs, making a worktree), doing it, reviewing it — are added by a front end, an agent, or a person. Running the work, tracking it, and finishing it are other tools' jobs.
+- **Conventions, not rules.** Any kind may hold any kind. A kind suggests the kinds it usually holds, but shingi refuses only what would make a unit unreadable: an invalid name, or a kind the rules don't define.
+- **Tell, never enforce.** shingi checks what it creates, and nothing after. A misplaced task or file is cheap to move when someone notices it.
+
+shingi is one command, `shingi`: a Python 3.11+ package with no dependencies outside the standard library (see [Installing](#installing)). Its commands are [`where`](#where), [`list`](#list), [`create`](#create), [`kinds`](#kinds-1), and `version`.
+
+## How shingi fits
+
+shingi is one building block among several, each owning one thing and talking to the others only through a CLI, JSON, or a file anyone can read:
+
+| Block | Owns |
+|---|---|
+| **shingi** | Structure and identity: paths, folders, `id`, start and done tasks. |
+| **koan** | Tasks, their dependencies, and time: when anything was made, started, and done. |
+| **sesshin** | Sessions: starting, naming, and watching them. |
+| **Post-create hooks** ([future work](#post-create-hooks)) | What a kind or a machine needs set up: worktrees, setup tasks, templates. Work and home differ here without shingi knowing. |
+| **`uow.md`** | What was decided and learned about a unit, readable by any person or agent. |
+| **ino** (later) | Coordination: reads `shingi list` for the shape and progress of the work and each unit's `uow.md` for its details, then hands work out through koan and sesshin. |
+
+Two boundaries keep the blocks apart:
+
+- **A hook stays a plugin.** What a hook does that proves useful on every machine becomes a shared hook, not a shingi feature. shingi grows only where every unit, of every kind, on every machine, needs the same thing.
+- **A section of `uow.md` that a tool reads is a format.** While only people and agents read `uow.md`, prose is enough. Once ino or a hook depends on a section — a worktree path under `## Code` — that section is written down as a format in the skill, or the fact moves to [machine-readable facts](#machine-readable-facts). No tool parses prose and hopes.
+
+## Non-goals
+
+- **Tracking progress or completion.** A unit has no status. Whether it is started or done is told by the start and done tasks `create` makes for it in koan (see [Start and done tasks](#start-and-done-tasks)).
+- **Setting up the work.** shingi runs no git and knows no repository. Which repository a unit works in, what its branch is called, and where its worktree is are decided by the unit's setup tasks, which shingi doesn't make, and recorded in its notes.
+- **Running sessions.** sesshin starts and tracks them; shingi only names a unit's session and says where its folders are.
+- **Moving, renaming, or deleting units.** By hand for now; see [Moving and removing units](#moving-and-removing-units).
+- **Knowing what a name means.** A name is only a name: a Jira key, a ticket number, or a slug are all the same to shingi, which infers nothing from one. What a name refers to comes from outside shingi.
+- **Talking to Jira or any other tracker.**
+- **More than one user, or more than one machine.** Each machine has its own rules and roots. Work and home are separate machines, with separate trees.
+- **Windows.** As for koan and sesshin.
+
+## Assumptions
+
+- **shingi is the only writer of `uow.json`.** A change made another way is an *outside change*, outside the contract, as in koan.
+- **`uow.md` is everyone's,** as a koan task's notes are: you, your agents, and any editor change it freely. It carries nothing shingi depends on but its first heading, the unit's title (see [The notes file](#the-notes-file)).
+- **koan is installed,** on `PATH`, and shingi talks to it through its CLI only, never its files.
+- **The working root is on a local filesystem,** so hard links and exclusive file creation behave as specified.
+- **Hidden entries are ignored.** Any entry under the working root whose name starts with `.` is skipped by every walk.
+
+## Supported platforms
+
+Linux and macOS, on amd64 and arm64, as koan and sesshin.
+
+### Installing
+
+shingi needs Python 3.11 or later, for `tomllib`, and is installed into its own environment with `uv tool install` or `pipx install`, from a clone or the repository. macOS's system Python is too old: use one from uv, Homebrew, or python.org. Either tool puts `shingi` in `~/.local/bin`, which must be on `PATH` (`uv tool update-shell` or `pipx ensurepath`), and pins it to the Python it was installed with: if that Python is removed or upgraded away, `shingi` stops running until it is reinstalled (`uv tool install --reinstall`, `pipx reinstall shingi`). uv and pipx are needed only to install, never to run.
+
+## Terms
+
+| Term | Meaning |
+|---|---|
+| **unit** | A unit of work: one node of the hierarchy, recorded by a `uow.json` (see [The manifest](#the-manifest)). |
+| **path** | A unit's place in the hierarchy, its names joined by `/`: `HOME-12345/foo-1-schema`. Relative; never starts with `/`. |
+| **name** | The last segment of a path: the unit's own folder name. |
+| **parent**, **children** | The unit whose folder holds this one's, and the units whose folders this one holds. Derived from the nesting. |
+| **top-level unit** | A unit whose folder sits directly in the working root. |
+| **id** | A unit's identity: a random UUID in its manifest, carried by its tasks (see [Names and identity](#names-and-identity)). |
+| **kind** | A label for what a unit is: `group`, `branch`, or any other the rules define (see [Kinds](#kinds)). |
+| **roots** | The two directories the rules name: the koan root and the working root (see [The rules file](#the-rules-file)). |
+| **koan folder** | A unit's folder in koan's tree: the koan root plus its path. |
+| **working folder** | A unit's folder on disk: the working root plus its path. Holds its `uow.json`, its `uow.md`, and any other working material. |
+| **manifest** | A unit's `uow.json`: its identity and kind, written by shingi. |
+| **notes** | A unit's `uow.md`: its title and running notes, written by anyone. |
+| **start task**, **done task** | The two koan tasks `create` makes for a unit (see [Start and done tasks](#start-and-done-tasks)). |
+
+## Locations
+
+| What | Where |
+|---|---|
+| The rules | `shingi.toml` in shingi's config directory, found as koan and sesshin find theirs: on Linux, `$XDG_CONFIG_HOME/shingi` when `XDG_CONFIG_HOME` is an absolute path, otherwise `~/.config/shingi`; on macOS, `~/Library/Application Support/shingi`. |
+| A unit's tasks | Its koan folder: the koan root plus its path. shingi knows only koan folder paths, never where koan's root is on disk. |
+| A unit's manifest, notes, and working material | Its working folder: the working root plus its path. |
+| A unit's code | Wherever its setup tasks put it, as recorded in its notes. shingi doesn't know. |
+
+No environment variable sets a location or a rule: a harness's environment is whatever started it, so a setting there could reach one process and not another. `--config <file>` overrides the rules file for one command, for tests and trials.
+
+## The rules file
+
+### Example
+
+```toml
+schema = 1
+
+[roots]
+koan    = "/"
+working = "~/work"
+
+[kind.group]
+description = "Work gathered under one name: a project, a story, an epic, a research phase."
+suggests    = ["group", "branch"]
+
+[kind.branch]
+description = "Work on one branch of one repository."
+suggests    = []
+```
+
+### Fields
+
+| Field | Type | Meaning |
+|---|---|---|
+| `schema` | integer | The file's format version (see [Format versions](#format-versions)). Required. |
+| `roots.koan` | string | The koan root: a koan folder path, absolute. `/` puts top-level units directly at the top of koan's tree. Required. |
+| `roots.working` | string | The working root. A leading `~/` is the home directory; otherwise absolute. Required. |
+| `kind.<name>` | table | Defines a kind. `<name>` is lowercase ASCII letters, digits, and `-`, as a koan tag. At least one kind is required. |
+| `kind.<name>.description` | string | What the kind is for, one line, for [`kinds`](#kinds-1) to report. Optional. |
+| `kind.<name>.suggests` | array of strings | The kinds a unit of this kind usually holds, for a front end to propose first. Each names a defined kind. Optional; default `[]`. |
+
+Unknown fields are an error, not ignored, so a typo says so instead of silently doing nothing. Any error in the rules file is an error for every command.
+
+## The hierarchy
+
+- **A unit is a folder with a manifest.** A folder under the working root is a unit exactly when it holds a `uow.json`.
+- **Units nest only in units.** A unit's folder sits directly in the working root (a top-level unit) or directly in another unit's folder (its parent). A manifest anywhere else — in a plain folder, or deeper inside a unit's working material — is not a unit, and [`list`](#list) reports it as `stray-manifest`.
+- **Children are found, never listed.** A parent records nothing about its children: they are the folders directly in its folder that hold a manifest.
+- **The path is mirrored.** A unit's koan folder and working folder are its path under the koan root and the working root. Both trees show the same hierarchy; neither is primary.
+- **A unit's koan folder holds only its own tasks and its children's folders.** There are no phase folders or other special folders. Anything phase-like is a child unit (a `group` named `research`), so a name can only collide with a sibling, which the filesystem already prevents. Beyond the tasks `create` makes, how a unit's tasks are arranged is up to you.
+- **A unit's working folder is its own.** `uow.md` is its scratchpad, the first place notes go. Beyond it, the people and agents doing the work are encouraged to add whatever files and folders the work needs — drafts, graphs, captured logs, a `docs/` — with no names reserved and no layout imposed. Everything in the folder that isn't a child's folder is that unit's working material, and shingi names no files in it but its own two.
+
+### Names
+
+- **A name is a koan folder name:** ASCII letters, digits, and `-`, at most 64 characters, neither starting nor ending with `-`: `HOME-12345`, `foo-1-schema`. The path is a koan folder path too, so a name koan would refuse would break the mirror; and every name this allows is also a valid part of a git branch name, a sesshin job, and a shell argument, with no quoting.
+- **A name means nothing to shingi.** `HOME-12345` may be a Jira key to you; to shingi it is a name, checked only against the rule above.
+- **Case is kept, never changed.** A name is stored, shown, and matched exactly as it was given to `create`, in whatever mix of cases it has, and so is everything derived from it: the koan folder, the working folder, a session's job. shingi never uppercases, lowercases, or folds a name, and matches a path case-sensitively.
+- **Names are unique among siblings, ignoring case.** `create` refuses a name that differs from an existing sibling's only in case (`name-taken`, naming the sibling), so a tree means the same on macOS, whose filesystem usually ignores case, as on Linux, whose filesystem doesn't. This is the one place case is compared loosely, and it only ever refuses.
+
+## The manifest
+
+### Fields
+
+Every `uow.json` has the same fields:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `schema` | integer | The manifest's format version. |
+| `id` | string | The unit's identity: a random UUID, lowercase, in its canonical 36-character form, made by `create`. Ties the unit to its [start and done tasks](#start-and-done-tasks) and survives a move (see [Names and identity](#names-and-identity)). |
+| `kind` | string | The unit's [kind](#kinds), as named when it was created. |
+
+All fields are required. Unknown fields are an error, as in the rules file.
+
+### Example
+
+`~/work/HOME-12345/foo-1-schema/uow.json`:
+
+```json
+{
+  "schema": 1,
+  "id": "3f6c2a9e-8b1d-4e47-9c05-7a2d41e6b0f3",
+  "kind": "branch"
+}
+```
+
+Beside it, `uow.md`, after the unit's setup task has run:
+
+```markdown
+# foo: schema changes
+
+## Code
+
+Repository foo, branch HOME-12345-foo-1-schema, from origin/main.
+Worktree: /home/you/repos/foo/.claude/worktrees/HOME-12345-foo-1-schema
+```
+
+### Derived, never stored
+
+| Fact | Derived from |
+|---|---|
+| Name, path | Where the manifest sits. Renaming a folder can't leave a stale name behind. |
+| Parent, children | The nesting. |
+| Koan folder, working folder | The roots plus the path. |
+| Title | The first `# ` heading of `uow.md`. |
+| When it was created, started, and done | Its start and done tasks in koan (see [Start and done tasks](#start-and-done-tasks)). |
+| Where its code is | Nothing shingi reads: its notes say, for people and agents. |
+
+### The notes file
+
+`uow.md` sits beside `uow.json` and is the unit's scratchpad. `create` writes it with the unit's title as its first heading and then `create`'s `--notes`, if given: whatever a front end or script wants recorded about the unit from the start. After that it belongs to whoever is working: append notes, rewrite it, link out to other files in the folder. A unit's setup tasks record what they decided here — the repository, the branch, the worktree — in whatever form the [skill](#claude-code) teaches.
+
+- **The title is the first line that starts with `# `.** A unit with no such line, or no `uow.md`, has the empty title, and tools show its path instead. Changing a title is editing that line.
+- **Nothing else in it is read by shingi.**
+- **Never replaced.** `create` writes `uow.md` only when there is none, so an interrupted `create` run again keeps what anyone wrote in the meantime.
+
+### File format
+
+`uow.json`, as koan's task files: UTF-8, one JSON object, pretty-printed with two-space indents and a trailing newline. Written once, never replaced: to a hidden temp file in the same folder, flushed, then hard-linked as `uow.json`, which fails if one is already there, and the temp file removed. A reader sees no manifest or a whole one, never part of one, and of two writers only one can succeed. A temp file left by a crash is hidden, so every walk skips it.
+
+## Kinds
+
+A kind is a label for what a unit is, defined in the rules file: context for the people, agents, and front ends reading the tree. shingi does nothing differently for one kind than another: every unit has the same manifest, the same files, and the same start and done tasks, whatever its kind.
+
+- **Configured, not built in.** shingi knows no kind by name. The rules define them, each with a description and the kinds it suggests holding. Adding a kind, or changing one, is an edit to `shingi.toml`, never a change to shingi or to any manifest.
+- **Checked at `create`, told after.** `create` refuses a kind the rules don't define (`unknown-kind`), so a typo doesn't become a label. A manifest whose kind is no longer defined — renamed or removed from the rules since — is still a unit: [`where`](#where) and [`list`](#list) read it as usual and warn `undefined-kind`.
+- **What a kind means in practice is the front end's.** A front end or the skill may add different tasks to a `branch` than to a `group` — a setup task, a review task — by looking at the kind. shingi doesn't.
+- **Suggestions, not rules.** A kind's `suggests` is what a front end proposes first when creating a child. Any kind may hold any kind, and nothing checks the nesting, at `create` or after.
+- **The natural axis for metrics.** Start and done times say how long a unit took; its kind says what sort of work it was, so cycle time by kind — how long a `branch` usually takes, against a `research` group — needs nothing but `shingi list` and koan. A script built on shingi, never a part of it.
+
+The example rules define two kinds, the shapes that come up most:
+
+- **`group`:** work gathered under one name — a long-lived project; a Jira story or epic, named by its key; a one-off at the top level; story-level research; the seven stacked branches of one large change. What a group is *for* goes in its `uow.md`.
+- **`branch`:** work on one branch of one repository. Usually a leaf, and the unit with code to work on: a story split into seven merge requests is a `group` named by its key, holding a `group` of seven `branch` units, plus a `branch` in each other repository it touches. Its setup task, added by the front end or an agent, chooses the repository and branch name — an agent proposing a slug, a person confirming it — makes the worktree, and records all three in `uow.md`.
+
+A stack's order lives where it stays true: in git, which knows each branch's history; in the units' names (`1-schema`, `2-model`); and in koan, where each piece's start task waits on the previous piece's done task.
+
+## Names and identity
+
+A unit is *named* by its path and *identified* by its `id`.
+
+- **People and tools name a unit by its path.** It is unique, since the filesystem allows one folder per name, and readable: `HOME-12345/foo-1-schema` says what it is. Every command takes a path; a sesshin job is named from it, and ino, later, would hand units out by it.
+- **koan tasks are tied to a unit by its `id`.** Every task `create` makes carries it, so a task found by any koan query, in any folder, is matched to its unit exactly. The folder is where a unit's tasks belong; the `id` is how they are recognized.
+- **The `id` is random, not counted.** `create` makes a fresh UUID, so there is no counter, no lock, and no state outside the units themselves.
+- **Moving a unit keeps its identity.** Its path changes and its `id` doesn't, so its tasks still match it wherever they are; a task left behind in the old koan folder is told as `task-misplaced`. Moving is [by hand](#moving-and-removing-units) for now.
+- **Copying a folder duplicates an `id`.** Two units with one `id` are a warning from [`list`](#list), `duplicate-id`, and neither is matched to tasks until one is removed. Copying is not how a unit is made: `create` is.
+
+## Start and done tasks
+
+A unit has no status of its own. Its progress is told by two koan tasks that `create` makes directly in its koan folder, in one `koan create-batch`, whatever its kind:
+
+| Task | `extra` | Title | Blocked by |
+|---|---|---|---|
+| start | `"shingi-start": "<id>"` | `Start: <path>` | the parent's start task, if there is a parent |
+| done | `"shingi-done": "<id>"` | `Done: <path>` | its own start task |
+
+and the new done task is added to the blockers of the parent's done task, so a parent can't be done while a child is open.
+
+- **Found by the unit's `id`, never stored.** A unit's start task is the task whose `extra."shingi-start"` is the unit's `id`; its done task, the one whose `extra."shingi-done"` is. The key says the role and the value says the unit, so a start and a done task from any query pair up by value alone. Every task shingi makes has an `extra` key starting with `shingi-`, so one `koan list` finds them all. The manifest records no task IDs.
+- **Titles are for people.** shingi writes them, and never reads them: renaming one changes nothing.
+- **Times are koan's.** A unit was created at its start task's `created_at`, started at its start task's `completed_at`, and done at its done task's `completed_at`. A script gathering metrics needs only koan: every `shingi-start` and `shingi-done` task, paired by value.
+- **Marking them is the work's job.** Whoever begins a unit marks its start task done first; whoever finishes it marks its done task. Done covers cancelled, as everywhere in koan; a reason goes in the task's notes.
+- **Every other task is added and wired by whoever adds it.** shingi makes and links only these two. The convention, taught by the skill: every other task in a unit — its setup task among them — is blocked by its start task and blocks its done task. Nothing checks this.
+- **Work order across units is ordinary task dependencies.** A unit in one repository that needs another's API change has its start task blocked by that unit's done task, across repositories or within a stack.
+
+### Problems
+
+Told, never guessed past, as warnings from [`where`](#where) and [`list`](#list), and fixed by hand:
+
+- `missing-task`: no start task, or no done task, carries the unit's `id`. That task is reported as `null`.
+- `duplicate-task`: more than one start task, or done task, carries it. That task is reported as `null`.
+- `task-misplaced`: a task is found, but outside the unit's koan folder. It is still reported.
+- `orphan-task`: a task's `shingi-` value names no unit, as when an interrupted or losing `create` made tasks and no manifest. `list` alone reports these, since only it sees every unit.
+
+## Commands
+
+Every command prints one line of JSON to stdout, in the same envelope as koan and sesshin, and uses their exit codes, so one `jq` habit covers all three. No failure ends in a Python traceback: an unexpected exception is still an envelope, and a closed stdout (`shingi where X | head -c 10`) is koan's exit `3`, not a `BrokenPipeError`. Output is always UTF-8, whatever the locale. Every path in output is absolute, with `~` expanded: not every harness's file tools expand `~`. Detailed inputs, outputs, and errors belong in `operations.md`; this section gives each command's purpose and contract.
+
+A unit is named on the command line by its path (`HOME-12345/foo-1-schema`), matched exactly, case included.
+
+### where
+
+`shingi where <unit>` — everything about one unit:
+
+- **From its files:** its `id` and kind from the manifest; its title from `uow.md`.
+- **From koan:** its start and done tasks, matched by its `id`: each one's koan ID, folder, title, `created_at`, and `completed_at`.
+- **Derived:** its path, koan folder, working folder, notes file, parent's path, and each child's path and kind.
+- **For sesshin:** a suggested job, the path with `/` replaced by `-`. Where a session starts is the front end's choice: the worktree a unit's notes record, or its working folder.
+- **`text`:** the same facts as short prose, for an agent to read or a skill to pass on:
+
+```
+Unit HOME-12345/foo-1-schema (branch), in HOME-12345 (group): foo: schema changes.
+Tasks go in koan under /HOME-12345/foo-1-schema.
+Started 2026-10-05 (task 41); not done (task 42).
+Working folder: /home/you/work/HOME-12345/foo-1-schema
+Notes, including where its code is: /home/you/work/HOME-12345/foo-1-schema/uow.md
+```
+
+`where` reads the unit's files, its parent's, and its children's, and runs one `koan list` of the whole koan tree, done tasks included, to find its start and done tasks, which match by value wherever they are. When koan fails, the tasks are `null` and `where` warns `koan-failed`, still reporting everything else.
+
+### list
+
+`shingi list [<unit>]` — a full description of a tree: the unit and every unit beneath it, at any depth, or every unit under the working root when none is given. Each entry carries everything [`where`](#where) reports for that unit, children nested under parents, in path order, so one call tells a reader where every unit's tasks and notes are, and how far along each is.
+
+- **`text`:** the whole tree as compact prose, for an agent to read:
+
+```
+HOME-12345 (group): Payment retries — started 2026-10-01
+  notes: /home/you/work/HOME-12345/uow.md · tasks: koan /HOME-12345
+  research (group): story-level research — done 2026-10-03
+    notes: /home/you/work/HOME-12345/research/uow.md · tasks: koan /HOME-12345/research
+  foo-split (group): seven stacked MRs — started 2026-10-04
+    1-schema (branch): schema changes — started 2026-10-05
+      notes: /home/you/work/HOME-12345/foo-split/1-schema/uow.md · tasks: koan /HOME-12345/foo-split/1-schema · job HOME-12345-foo-split-1-schema
+    …
+  bar (branch): retry API — not started
+    …
+```
+
+- **Always current.** `list` walks the tree each time it runs and stores nothing, so there is no generated file to fall out of date. A coordinator is told to run it, not to read a file.
+- **Any unit can be the root.** `shingi list HOME-12345/foo-split` describes the stack alone.
+- **One koan call.** `list` finds every unit's start and done tasks with one `koan list` of the whole koan tree, done tasks included, matched to units by `id`.
+- **Problems are warnings, never failures,** so one bad manifest doesn't hide the rest: `invalid-manifest`, `stray-manifest`, `undefined-kind`, `duplicate-id`, `missing-task`, `duplicate-task`, `task-misplaced`, `orphan-task`, `koan-failed`.
+
+### create
+
+`shingi create <path> <kind> [--title <text>] [--notes <text>]`, or `shingi create -i <file>` with the same input as one JSON object — make one unit.
+
+1. **Check.** The name is valid and no sibling has it, ignoring case; the kind is defined; the parent (from the path) exists, or the path is a single segment. A failed check changes nothing.
+2. **Set up koan.** Pick the unit's `id`: a fresh UUID, unless an earlier, interrupted `create` of this path left shingi tasks in its koan folder whose value names no unit, in which case their `id` is reused; tasks there naming more than one such `id` are `conflicting-tasks`, and nothing changes. One `koan create-batch` makes the koan folder and whichever of the unit's [start and done tasks](#start-and-done-tasks) don't yet carry that `id`: the start task, blocked by the parent's start task, found by the parent's `id`, and the done task, blocked by the start task. Then `koan block` adds the done task to the parent's done task's blockers, unless the parent's done task is already done, which is warned as `parent-done` and left alone. Each step accepts what an interrupted `create` left: a koan folder that already exists, tasks already made, a blocker already added.
+3. **Commit.** Write `uow.md` if there is none, then write the manifest, with its `id`. The unit exists from this moment, and not before: a `create` that failed or was interrupted before here left no unit, and running it again finishes the job.
+
+A unit whose manifest already exists is `unit-exists`, and nothing changes. `create` never replaces or removes anything, and makes nothing outside koan and the working root, and no task but the unit's start and done tasks.
+
+### kinds
+
+`shingi kinds` — every kind the rules define, with its description and the kinds it `suggests`. For a front end — a Claude command, an OpenCode command, a pi tool — to offer the right kinds without knowing them itself.
+
+## Front ends
+
+`create` never asks anything: every answer is an argument. Asking is a front end's job, and the part an agent does best — proposing names for a story's pieces, or how to split one large change into a stack. A front end:
+
+1. reads `shingi kinds` for what to offer, proposing a parent's `suggests` first,
+2. asks the person, proposing names where it can,
+3. runs one `shingi create` per unit, parent first. Creating a whole tree in one call is [future work](#batch-create-and-tree-templates).
+4. adds the unit's other tasks — a `branch`'s setup task, say — each blocked by the unit's start task and blocking its done task, found with `shingi where`.
+
+A story with seven branches in `foo` and one in `bar` is one `create … group` and eight `create … branch`, each a separate, checkable step — often run by the story's own setup task, once the split is agreed. Each `branch` then sets itself up through the setup task the front end gave it.
+
+## Adapters
+
+### Claude Code
+
+A Claude Code plugin, served from this repository as koan's and sesshin's are, carrying one skill and no hooks. The skill teaches the hierarchy and the kinds; to ask `shingi where` instead of composing a path; the [front-end](#front-ends) steps for creating units; how to do a setup task and where in `uow.md` to record what it decided, so every unit's notes say where its code is in the same form; and how to coordinate:
+
+- **A coordinator** starts in a container's working folder and runs `shingi list <unit>` for its picture of the work: each unit's koan folder for `koan frontier --folder`, its job for `sesshin spawn`, and its notes for the worktree to start that session in.
+- **A worker** is spawned with its own unit's `shingi where` facts in its first prompt, since it starts in a worktree whose `CLAUDE.md` is the repository's, not the unit's.
+
+A plugin can't grant permissions, so `scripts/install.sh` adds rules letting `where`, `list`, `kinds`, and `version` run without a prompt, while `create`, which changes things, still asks; it backs `settings.json` up first and is safe to rerun.
+
+### OpenCode
+
+The same skill, linked into OpenCode's skills directory as koan's is, and the same permission rules.
+
+## Concurrency
+
+`create` is the only writer, and takes no lock. Two `create`s of different paths never touch the same file. Two `create`s of the same path both pass their checks, both set up koan, and race at the commit: the manifest is written with an exclusive create, so the second fails with `unit-exists` and leaves only what the first would have made anyway — except in koan, where each may have made its own tasks, under its own `id`, before seeing the other's. The winner's manifest names its tasks; the loser's are told by [`list`](#list) as `orphan-task` and deleted by hand.
+
+## Format versions
+
+`shingi.toml` and every `uow.json` carry `schema`, each versioned on its own. A rules file with a `schema` shingi doesn't support is an error for every command; an unsupported manifest is an error for that unit alone. Before 1.0, as koan's and sesshin's formats, a schema may change in place: a change bumps shingi's minor version, and its release notes say how to update existing files. Kinds are configuration: adding, changing, or removing one is never a schema change.
+
+## Future work
+
+Grouped by when, not ranked within a group.
+
+### Next
+
+#### Filtering `list`
+
+`shingi list --open`, leaving out every unit whose done task is complete, with its subtree. After months of work most of the tree is finished, and a coordinator wants what's left. The data is already in `list`'s one koan call; this only decides what to print.
+
+### Later
+
+#### Batch create and tree templates
+
+`shingi create -i plan.json` taking a whole tree — a story, its groups, every branch — as one input, as `koan create-batch` takes many tasks, so a front end can propose the entire shape for review and build it in one call. Each unit would still commit by writing its manifest last, so an interrupted batch could be run again, and each unit's [post-create hook](#post-create-hooks) would run as if it had been created alone.
+
+A plan file kept and reused is a **tree template**: "a story with a research group, a split group, and one `branch` per repository", with names filled in per use. Templates are files the user keeps, not shingi configuration: shingi only reads the plan it is given.
+
+#### Post-create hooks
+
+A command a kind names in `shingi.toml`, as Claude Code names its hooks, that `create` runs once the unit exists, so a kind can bring its own setup without shingi knowing what it is: a `branch` hook adds a setup task and a review task, each blocked by the start task and blocking the done task; another kind's hook copies a template into the working folder. A hook may specify work without doing it: making a unit's tasks now, for an agent to carry out much later.
+
+- **Given the whole context.** The hook gets, as JSON on stdin, everything [`where`](#where) reports for the new unit — path, `id`, kind, title, koan folder, working folder, notes file, parent, and the start and done tasks' koan IDs — plus `create`'s own input, and runs in the unit's working folder.
+- **After the commit, never part of it.** The unit exists before its hook runs, so a hook that fails leaves a whole unit with less set up, never a half-made one. `create` reports the failure as a warning, `hook-failed`, with the hook's exit code and stderr.
+- **Rerunnable on its own.** A failed or changed hook is run again by a command of its own (`shingi hook <unit>`), since running `create` again is `unit-exists`. Hooks are expected to be safe to rerun, as `create` is: finding what an earlier run made by its `extra` keys before making it again.
+- **Trusted as the rules file is.** A hook is a command the user wrote into their own config, with the user's permissions; shingi sandboxes nothing.
+- **A log convention.** Hooks, and the agents doing a unit's tasks, append timestamped lines under a `## Log` heading in `uow.md` — set up, merge request opened, blocked on review — giving a reader the unit's history without a database. Once ino reads it, it is a [format](#how-shingi-fits), and the skill writes it down.
+
+#### Context
+
+`shingi context <unit>`: everything an agent needs to start work on a unit, in one call — what a worker is spawned with, and what ino reads instead of composing it from three tools.
+
+- **Where it is:** everything [`where`](#where) reports.
+- **Why it exists:** the chain of its ancestors, from the top-level unit down, each with its path, kind, and title — `HOME-12345` (group) *Payment retries* › `foo-split` (group) *seven stacked MRs* › `1-schema` (branch) *schema changes*. `where` gives only the parent; a worker three levels down needs the whole chain to know what its piece is for. Derived each time from the ancestors' manifests and `uow.md` titles, never stored, so it can't go stale when a title is edited or a unit moves.
+- **What is known:** the unit's `uow.md` in full, and its parent's.
+- **What is left:** the unit's open koan tasks, with their readiness.
+
+Read-only, and a composition of what shingi already reads — its own files and koan — so it belongs in shingi rather than in each consumer. It decides nothing: which unit to work on next stays ino's.
+
+#### Unit from the current directory
+
+`shingi where` with no argument, answering "which unit am I in?" for an agent that starts with no context.
+
+- **In a working folder:** walk up from the current directory to the nearest `uow.json`. Works from the moment the unit exists.
+- **In code:** a worktree is outside the working root, so there is nothing to walk up to. Whoever makes the worktree — a hook, or an agent doing a setup task much later — registers it: `shingi bind <unit> [<dir>]` writes the unit's `id` to a file named `shingi-unit` in that checkout's own git directory (the one its `.git` file points to), and `where` with no argument reads it from there. Inside the git directory, the file can never be committed, shows in no `git status`, and is removed with the worktree. shingi reads the `.git` file to find it, and still runs no git.
+- **Timing follows the work.** A unit whose tasks were specified now and done later has no worktree to be in until its setup runs; binding is part of that setup, so the marker appears exactly when there is a directory to resolve from.
+
+#### Checking the mirror
+
+`shingi doctor`: everything [`list`](#list) warns about on the working side, plus the koan side it can't see — koan folders under the koan root with no unit (left by a unit removed by hand), and units whose koan folder is gone. Reports only; fixing stays by hand, as everywhere else.
+
+#### Adopting existing folders
+
+`create` on a path whose working folder already exists, with files in it, makes it a unit and keeps what is there: `uow.md` is written only if missing, and nothing else in the folder is touched. Stated and tested as a feature, so moving existing work onto shingi is one `create` per folder, parent first.
+
+#### Moving and removing units
+
+`shingi move`, which moves a unit's koan folder and working folder together, and `shingi remove`, which removes both. Until then, by hand: `koan delete-folder` on the unit's koan folder, which also takes its tasks out of every `blocked_by` outside it, so its parent's done task is no longer waiting on it; then remove its working folder; then undo whatever its setup made, such as a worktree and branch, the way it was made.
+
+#### Changing a unit's kind
+
+`shingi retype <unit> <kind>`, for a label that was wrong from the start. It would be the first command to rewrite a manifest, so it decides whether a kind is a fact that "stays true" or a label that may be corrected; until then, a corrected kind is an outside change.
+
+#### Machine-readable facts
+
+A free-form `extra` object in the manifest, as koan's, for facts a script needs to read reliably and `uow.md` can't hold. The first candidate is what a setup task decides — repository, branch, worktree — once something other than an agent needs to read it; that would also need a way to set it after `create`, which a write-once manifest doesn't have. Added as a manifest schema change when a script needs it.
+
+#### Keeping the working root in git
+
+Not a shingi feature, a habit it makes possible: `git init` the working root, and every `uow.md` gets its history — what was decided, and when it changed — for nothing. Hidden temp files and `.gitignore` keep it clean. Worth a paragraph in the skill once it has been tried.
