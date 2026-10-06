@@ -44,12 +44,15 @@ Two boundaries keep the blocks apart:
 
 ## Assumptions
 
+shingi is designed for a user who has bought in: one who works through shingi, koan, and sesshin, and their agents, and keeps to the assumptions below. Its specs, and reviews of them, hold the design to that user, not to one who breaks them: a case that needs an assumption broken is outside the contract, and gets no warning, check, or rule of its own until real use shows it matters. shingi is built to be used now and improved from what use teaches.
+
+- **shingi owns both its roots.** The working root holds units and their scratch material, nothing else: never a repository's checkout, whose code lives elsewhere and is only pointed to (see [The notes file](#the-notes-file)). It may be a git repository of its own. The koan root is a koan folder nothing but shingi uses.
 - **shingi is the only writer of `uow.json`, and koan of its task files.** A change made another way is an *outside change*, outside the contract: shingi warns about what it trips over and never crashes on one, but doesn't set out to explain it. shingi, koan, and sesshin all say so: edit the `.md` files, never the `.json`.
 - **`uow.md` is everyone's:** you, your agents, and any editor change it freely. It carries nothing shingi depends on but its title (see [The notes file](#the-notes-file)).
 - **koan is installed,** on `PATH`, and shingi talks to it through its CLI only, never its files, and knows only koan folder paths, never where koan's tree is on disk.
 - **The working root is on a local filesystem,** so hard links and exclusive file creation behave as specified.
 - **Hidden entries are ignored.** Any entry under the working root whose name starts with `.` is skipped by every walk.
-- **shingi owns both its roots.** The working root holds units and their scratch material, nothing else: never a repository's checkout, whose code lives elsewhere and is only pointed to (see [The notes file](#the-notes-file)). It may be a git repository of its own. The koan root is a koan folder nothing but shingi uses.
+- **Start and done tasks are threaded into the work.** Front ends, hooks, and agents wire every other task in a unit between its start and done tasks (see [Start and done tasks](#start-and-done-tasks)), so a unit's tasks are begun and finished in order. koan allows marking any task done at any time; shingi tells what it finds, and isn't designed around it.
 
 ## Supported platforms
 
