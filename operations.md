@@ -1,6 +1,6 @@
 # shingi operations
 
-An operation is a single query of, or change to, what the [design spec](design-spec.md) defines. Operations are the domain layer, small and orthogonal. They are not CLI commands, though each command runs exactly one: the design spec's [Commands](design-spec.md#commands) give each command's arguments, and cli-spec.md, once written, maps them onto the input fields here.
+An operation is a single query of, or change to, what the [design spec](design-spec.md) defines. Operations are the domain layer, small and orthogonal. They are not CLI commands, though each command runs exactly one: the design spec's [Commands](design-spec.md#commands) give each command's arguments, and [cli-spec.md](cli-spec.md) maps them onto the input fields here.
 
 The operations are the three that read the tree, [`where`](#where), [`list`](#list), and [`kinds`](#kinds); [`version`](#version); and [`create`](#create), the only one that changes anything.
 

@@ -255,7 +255,7 @@ and the new done task is added to the blockers of the parent's done task, so a p
 
 ## Commands
 
-Every command prints one line of JSON to stdout, in koan's envelope, and uses koan's exit codes, so one `jq` habit covers koan, sesshin, and shingi. No failure ends in a Python traceback: an unexpected exception is still an envelope, and a closed stdout (`shingi where X | head -c 10`) is koan's exit `3`, not a `BrokenPipeError`. Output is always UTF-8, whatever the locale. Every filesystem path in output is absolute, with `~` expanded: not every harness's file tools expand `~`. [operations.md](operations.md) specifies each command's input, output, and problems in full.
+Every command prints one line of JSON to stdout, in koan's envelope, and uses koan's exit codes, so one `jq` habit covers koan, sesshin, and shingi. No failure ends in a Python traceback: an unexpected exception is still an envelope, and a closed stdout (`shingi where X | head -c 10`) is koan's exit `3`, not a `BrokenPipeError`. Output is always UTF-8, whatever the locale. Every filesystem path in output is absolute, with `~` expanded: not every harness's file tools expand `~`. [operations.md](operations.md) specifies each command's input, output, and problems in full, and [cli-spec.md](cli-spec.md) its command line.
 
 A unit is named on the command line by its path (`HOME-12345/foo-1-schema`), matched exactly (see [Names](#names)).
 
@@ -321,7 +321,7 @@ With no unit, `where` names the unit the current directory is in, for an agent t
 
 ### create
 
-`shingi create <path> <kind> [--title <text>] [--notes <text>]`, or `shingi create -i <file>` with the same input as one JSON object, `{ "path", "kind", "title"?, "notes"? }` — make one unit. `result` is `{ "unit" }`, the new [unit](#output).
+`shingi create <path> <kind> [--title <text>] [--notes <text> | --notes-file <file>]`, or `shingi create -i <file>` with the same input as one JSON object, `{ "path", "kind", "title"?, "notes"? }` — make one unit. `result` is `{ "unit" }`, the new [unit](#output).
 
 1. **Check,** in this order. The path is valid; the kind is defined; the parent (from the path) exists, or the path is a single segment; no entry in the parent's folder has the name in another case, and no file has it exactly; no `uow.json` is there yet. A failed check changes nothing.
 2. **Set up koan.** Make the unit's `id`, a fresh UUID. One `koan create-batch` makes the koan folder and the unit's [start and done tasks](#start-and-done-tasks): the start task, blocked by the parent's start task, and the done task, blocked by the start task. Then `koan block` adds the done task to the parent's done task's blockers, unless that task is already done, which is warned as [`parent-done`](#problems) and left alone. The parent's tasks are found by its `id`, as `where` finds them, before anything is made. Each link is made or left out on its own: when the parent's start task, or its done task, can't be found — the parent's `id` is unreadable, or no task carries it — that link is left out and warned as [`parent-unlinked`](#problems), never guessed, and the other is still made.
@@ -355,7 +355,7 @@ Every problem shingi reports, by name. An error means the command changed nothin
 
 | Kind | Commands | When |
 |---|---|---|
-| `usage` | all | The command line is malformed: an unknown command or option, a missing or extra argument, `-i` together with arguments. |
+| `usage` | all | The command line is malformed: an unknown command or option, a missing or extra argument, `-i` together with arguments, `--notes` together with `--notes-file`. |
 | `invalid-input` | all | The input is the wrong shape: `create -i` JSON that isn't an object of the right fields, or a `--title` that is empty or holds a line break. |
 | `invalid-rules` | all but `version` | The rules file is missing, unreadable, or breaks [Fields](#fields). |
 | `unsupported-format` | all but `version` | The rules file's `schema` is one shingi doesn't support. |
