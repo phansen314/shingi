@@ -1,48 +1,10 @@
 import json
-import os
-import shutil
-import subprocess
-import tempfile
 import unittest
-from pathlib import Path
 
-RULES = """\
-schema = 1
-
-[roots]
-koan    = "/work"
-working = "{working}"
-
-[kind.group]
-description = "Work gathered under one name."
-suggests    = ["group", "branch"]
-
-[kind.branch]
-description = "Work on one branch of one repository."
-"""
+from support import ShingiTestCase
 
 
-class CreateTest(unittest.TestCase):
-    def setUp(self):
-        tmp = Path(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, tmp)
-        self.working = tmp / "working"
-        self.working.mkdir()
-        self.config = tmp / "shingi.toml"
-        self.config.write_text(RULES.format(working=self.working))
-        self.env = {**os.environ, "XDG_CONFIG_HOME": str(tmp / "config")}
-        subprocess.run(["koan", "init", str(tmp / "tree")], env=self.env, capture_output=True, check=True)
-
-    def shingi(self, *args):
-        proc = subprocess.run(
-            [shutil.which("shingi"), *args, "--config", str(self.config)], env=self.env, capture_output=True
-        )
-        return proc.returncode, json.loads(proc.stdout)
-
-    def koan_show(self, task_id):
-        proc = subprocess.run(["koan", "show", str(task_id)], env=self.env, capture_output=True, check=True)
-        return json.loads(proc.stdout)["result"]["tasks"][0]
-
+class CreateTest(ShingiTestCase):
     def test_creates_a_top_level_unit(self):
         status, out = self.shingi("create", "HOME-1", "group", "--title", "Payment retries")
         self.assertEqual(status, 0, out)

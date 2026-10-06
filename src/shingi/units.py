@@ -1,6 +1,7 @@
 """Units on disk and their tasks in koan (see operations.md, Shared rules)."""
 
 import json
+import os
 import re
 
 from shingi import koan
@@ -15,6 +16,22 @@ NOTES = "uow.md"
 def check_path(path):
     if not UNIT_PATH.fullmatch(path):
         raise OperationError("invalid-name", f"invalid unit path {path!r}", {"path": path})
+
+
+def resolve(rules, path):
+    """Raise not-found unless every folder on `path` exists, by its exact name, and holds a manifest."""
+    folder = rules.working_root
+    segments = path.split("/")
+    for i, segment in enumerate(segments):
+        folder = folder / segment
+        exact = segment in os.listdir(folder.parent)
+        if not (exact and folder.is_dir() and (folder / MANIFEST).is_file()):
+            missing = "/".join(segments[: i + 1])
+            raise OperationError(
+                "not-found",
+                f"{path} is not a unit: {missing} is not",
+                {"unit": path, "missing": missing, "cwd": None, "reason": "not-a-unit"},
+            )
 
 
 def koan_folder(rules, path):

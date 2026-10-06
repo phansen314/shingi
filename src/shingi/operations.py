@@ -13,6 +13,14 @@ def version(inp, config):
     return {"version": package_version("shingi")}
 
 
+def where(inp, config):
+    rules = rules_file.load(config)
+    path = inp["unit"]
+    units.check_path(path)
+    units.resolve(rules, path)
+    return units.read_unit(rules, path)
+
+
 def create(inp, config):
     rules = rules_file.load(config)
     path, kind = inp["path"], inp["kind"]

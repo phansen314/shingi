@@ -12,6 +12,7 @@ EXIT_USAGE = 2
 # Each command: its operation, its positional arguments' fields, and its options' fields.
 COMMANDS = {
     "version": (operations.version, [], {}),
+    "where": (operations.where, ["unit"], {}),
     "create": (operations.create, ["path", "kind"], {"--title": "title"}),
 }
 
