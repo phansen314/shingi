@@ -2,7 +2,7 @@
 
 An operation is a single query of, or change to, what the [design spec](design-spec.md) defines. Operations are the domain layer, small and orthogonal. They are not CLI commands, though each command runs exactly one: [cli-spec.md](cli-spec.md) gives each command's arguments and maps them onto the input fields here.
 
-The operations are the three that read the tree, [`where`](#where), [`list`](#list), and [`kinds`](#kinds); [`version`](#version); and [`create`](#create), the only one that changes anything.
+The operations are the three that read the tree, [`where`](#where), [`list`](#list), and [`kinds`](#kinds); [`version`](#version); and the two that change anything, [`create`](#create) and [`adopt`](#adopt).
 
 Terms follow the design spec's [Terms](design-spec.md#terms).
 
@@ -17,11 +17,11 @@ Terms follow the design spec's [Terms](design-spec.md#terms).
 ## Operation kinds
 
 - ***read*** — Changes nothing and takes no lock: [`where`](#where), [`list`](#list), [`kinds`](#kinds), and [`version`](#version).
-- ***write*** — Changes koan's tree and the working root: [`create`](#create). It takes no lock of its own; koan serializes its own writes, and the manifest's exclusive create settles a race (see [Concurrency](design-spec.md#concurrency)).
+- ***write*** — Changes koan's tree and the working root: [`create`](#create) and [`adopt`](#adopt). Neither takes a lock of its own; koan serializes its own writes, and the manifest's exclusive create settles a race (see [Concurrency](design-spec.md#concurrency)).
 
 ## Operation template
 
-Every operation is specified with the same parts, in this order. Every part is always present except **Order**, which appears only for operations that return a collection, and **Partial**, which appears only for [`create`](#create). An empty part is written `**Part:** none.`
+Every operation is specified with the same parts, in this order. Every part is always present except **Order**, which appears only for operations that return a collection, and **Partial**, which appears only for [`create`](#create) and [`adopt`](#adopt). An empty part is written `**Part:** none.`
 
 | Part | Content |
 |---|---|
@@ -35,7 +35,7 @@ Every operation is specified with the same parts, in this order. Every part is a
 | **Order** | Collections only: the order of the items. |
 | **Errors** | Table of [error kinds](#error-kinds) and when each is raised, in [precedence](#precedence) order. `io` and `internal` are omitted: any operation can raise `internal`, and any but `version` can raise `io`. |
 | **Warnings** | Table of [warning kinds](#warning-kinds) and when each is reported. |
-| **Partial** | `create` only: what an error reports `create` made. |
+| **Partial** | `create` and `adopt` only: what an error reports was made. |
 | **Retry safety** | Whether running it again after an error, a crash, or an unclear outcome is safe, and with what result. |
 
 ## Output envelope
@@ -91,11 +91,11 @@ Every operation returns one of two shapes:
 | `invalid-input` | The input failed its schema or its additional validation. Reports every problem, not just the first. | `problems`: `{field, reason}` list, `field` a JSON Pointer into the input, `reason` for people; sorted by `field`, then `reason`. |
 | `invalid-rules` | The rules file is missing, unreadable, not TOML, or breaks the design spec's [Fields](design-spec.md#fields). A working root that isn't an existing directory is one of these. | `path`: the rules file; `reason`: `missing`, `unreadable`, `syntax`, or `invalid`; `problems`: for `invalid`, a `{field, reason}` list, `field` the dotted TOML key (`roots.working`, `kind.branch.suggests`), sorted by `field`; otherwise empty. `code`: the symbolic OS error, for `unreadable`. |
 | `unsupported-format` | The rules file's `schema` is an integer shingi doesn't support. | `path`; `schema`: the one found; `supported`: the ones shingi supports, ascending. |
-| `not-found` | The unit named is not a unit, or, from [`where`](#where) without one, the current directory is in no unit. | `unit`: the path given, or `null`; `missing`: the shortest prefix of `unit` that is not a unit (the first folder on the path that doesn't exist, matches only ignoring case, or holds no `uow.json`), or `null`; `cwd`: the directory given, or `null`; `reason`: `not-a-unit` (a path was given), `outside-root`, or `no-unit`. |
-| `invalid-name` | A path breaks the design spec's [Names](design-spec.md#names). | `path`: as given; `index`: the first bad segment's position, from `0`; `segment`: that segment; `reason`: `empty` (a leading, trailing, or doubled `/`, or an empty path), `characters`, `length`, `hyphen` (starts or ends with `-`), or, from [`create`](#create) only, `path-length` (the whole path is over 193 characters; `index` and `segment` `null`). |
-| `parent-not-found` | `create`'s path has more than one segment, and its parent is not a unit. | `parent`: the parent's path; `missing`: as for `not-found`. |
-| `name-taken` | An entry in the parent's folder has the new name in another case, or is a file with it exactly. | `entry`: the entry's name as on disk; `type`: `unit`, `folder`, or `file` (anything not a directory). |
-| `unknown-kind` | `create`'s kind is not defined in the rules. | `kind`; `defined`: every defined kind, in name order. |
+| `not-found` | The unit named is not a unit; from [`where`](#where) without one, the current directory is in no unit; or, from [`adopt`](#adopt), the folder to adopt doesn't exist. | `unit`: the path given, or `null`; `missing`: the shortest prefix of `unit` that is not a unit (the first folder on the path that doesn't exist, matches only ignoring case, or holds no `uow.json`), or `null`; `cwd`: the directory given, or `null`; `reason`: `not-a-unit` (a path was given), `outside-root`, `no-unit`, or, from `adopt`, `no-folder` (with `missing` the path itself). |
+| `invalid-name` | A path breaks the design spec's [Names](design-spec.md#names). | `path`: as given; `index`: the first bad segment's position, from `0`; `segment`: that segment; `reason`: `empty` (a leading, trailing, or doubled `/`, or an empty path), `characters`, `length`, `hyphen` (starts or ends with `-`), or, from [`create`](#create) or [`adopt`](#adopt) only, `path-length` (the whole path is over 193 characters; `index` and `segment` `null`). |
+| `parent-not-found` | `create`'s or `adopt`'s path has more than one segment, and its parent is not a unit. | `parent`: the parent's path; `missing`: as for `not-found`. |
+| `name-taken` | An entry in the parent's folder has the new name in another case; or has it exactly and is, for `create`, a plain folder or a file, or, for `adopt`, a file. | `entry`: the entry's name as on disk; `type`: `unit`, `folder`, or `file` (anything not a directory). |
+| `unknown-kind` | `create`'s or `adopt`'s kind is not defined in the rules. | `kind`; `defined`: every defined kind, in name order. |
 | `unit-exists` | The unit's `uow.json` already exists. | `manifest`: its path. |
 | `koan-failed` | koan could not be run, or returned an error (see [Running koan](#running-koan)). | `call`: `list`, `create-batch`, or `block`; `exit`: koan's exit status, or `null` when it couldn't be run; `error`: koan's `error` object, or `null` when koan printed no envelope. |
 | `io` | The filesystem refused: permission denied, disk full, and the like. | `path`; `code`: the symbolic OS error, e.g. `EACCES`, or `null` when it has none. |
@@ -119,7 +119,7 @@ Each operation's Errors table lists its checks in the order it makes them, and a
     "kind": { "type": "string" },
     "message": { "type": "string", "description": "Human-readable; not part of the contract." },
     "details": { "type": "object" },
-    "partial": { "$ref": "create-partial", "description": "create only, and only when it had made something." }
+    "partial": { "$ref": "create-partial", "description": "create and adopt only, and only when it had made something." }
   },
   "additionalProperties": false
 }
@@ -129,7 +129,7 @@ Each operation's Errors table lists its checks in the order it makes them, and a
 
 A warning is a problem an operation told and went on past. It never changes the outcome, and never guesses: what it reports as `null` stays `null`.
 
-- **One warning per problem:** per unit for `unsupported-manifest` and `undefined-kind`, per unit and role for `missing-task` and `parent-unlinked`, one each for `parent-done` and `notes-kept`, per task for `orphan-task`, per koan warning for `koan-warning`.
+- **One warning per problem:** per unit for `unsupported-manifest` and `undefined-kind`, per unit and role for `missing-task` and `parent-unlinked`, one for `parent-done`, per task for `orphan-task`, per koan warning for `koan-warning`.
 - **Deterministic order:** `warnings` is sorted by `kind`, then by `unit` in [path order](design-spec.md#terms), `null` first, then by `ids`, compared element by element as numbers, then by `details.role`, `start` before `done`. `koan-warning`s that still tie keep koan's order, calls in the order shingi made them.
 
 ### Warning kinds
@@ -142,7 +142,6 @@ A warning is a problem an operation told and went on past. It never changes the 
 | `orphan-task` | A task tagged `shingi`, in the koan folders `list` read, that matches no unit. | the unit whose `id` it carries, when `list` found one elsewhere; otherwise `null` | the task | `folder`: the task's koan folder; `source`, `shingi_unit`: its `extra.source` and `extra.shingi-unit`, each `null` when absent or not a string. |
 | `parent-done` | The parent's done task was already done, so the new done task was not added to its blockers. | the new unit | the parent's done task | `parent`. |
 | `parent-unlinked` | The parent's start or done task could not be found, so that link was left out. | the new unit | `[]` | `parent`; `role`: `start` or `done`; `reason`: `unsupported-manifest` or `missing-task`. |
-| `notes-kept` | The working folder already held a `uow.md`, which was kept, so the title and notes given were not written. | the new unit | `[]` | `notes_path`. |
 | `koan-failed` | koan could not be run, or returned an error, while reading tasks; every task is `null`. | the unit read, or `null` from `list` | `[]` | As the [error](#error-kinds). |
 | `koan-warning` | A koan call succeeded with a warning of its own. An unusable task file can hide a start or done task, so while one is present, `missing-task`, `orphan-task`, or `parent-unlinked` may be wrong. | `null` | the koan warning's `ids` | `call`; `warning`: koan's warning, verbatim. |
 
@@ -582,7 +581,7 @@ Make one unit: its start and done tasks in koan, linked to its parent's, then it
 
 **Additional validation:** `title` holds no line break (`\n` or `\r`). No string holds a NUL.
 
-**Preconditions:** `path` is a valid unit path of at most 193 characters, `kind` is defined, the parent is a unit (or `path` is one segment), no entry in the parent's folder takes the name but a directory with exactly the name, which is adopted, and the unit's `uow.json` doesn't exist.
+**Preconditions:** `path` is a valid unit path of at most 193 characters, `kind` is defined, the parent is a unit (or `path` is one segment), and no entry in the parent's folder has the name, in any case.
 
 **Effects:**
 
@@ -590,7 +589,7 @@ Make one unit: its start and done tasks in koan, linked to its parent's, then it
    1. [Read the rules](#reading-the-rules).
    2. `path` is a [unit path](#unit-paths) (`invalid-name`) of at most 193 characters, so `Start: <path>` fits koan's 200-character title (`invalid-name`, `reason` `path-length`), and `kind` is defined (`unknown-kind`).
    3. With more than one segment, the parent, `path` without its last segment, [resolves](#resolving-a-path) (`parent-not-found`).
-   4. List the parent's working folder, or the working root. An entry whose name equals the new name ignoring ASCII case but not exactly is `name-taken`; so is one with exactly the name that is not a directory. A directory with exactly the name that holds a `uow.json` is `unit-exists`. A directory with exactly the name and no `uow.json` is [adopted](design-spec.md#create): it becomes the unit's working folder.
+   4. List the parent's working folder, or the working root. A directory with exactly the name that holds a `uow.json` is `unit-exists`. Any other entry whose name equals the new name, exactly or ignoring ASCII case, is `name-taken`: an existing folder becomes a unit only by [`adopt`](#adopt).
 2. **Find the parent's tasks,** with a parent: [read its manifest](#reading-a-unit), and, when usable, [find its start and done tasks](#finding-start-and-done-tasks), non-recursively, in its koan folder. A koan failure here is `koan-failed`, with nothing made. Each of the two that isn't found — the manifest unusable, or no task matches — is `parent-unlinked`, and its link is left out.
 3. **Make the tasks.** Make a fresh `id`, a random (version 4) UUID. Run koan `create-batch`:
 
@@ -607,8 +606,8 @@ Make one unit: its start and done tasks in koan, linked to its parent's, then it
    koan makes the koan folder, and any missing folder above it, as it makes a batch's folders. On failure: `koan-failed`, with what koan's own `partial` says it made; when koan's outcome is unknown, with no `partial`, since what it made can't be known.
 4. **Link the parent's done task,** when it was found: when its readiness is `done`, warn `parent-done` and leave it; otherwise run koan `block` with `{ "id": <parent's done task ID>, "blockers": [<new done task ID>] }`. On failure: `koan-failed`, with the tasks made; when koan's outcome is unknown, the link may have been made too, and `blocked` is `null`.
 5. **Write the files.**
-   1. Make the working folder, unless it was adopted. One that appears meanwhile is adopted then.
-   2. Create `uow.md` exclusively: `# <title>` and a newline, then, with non-empty `notes`, a blank line and the notes, followed by a newline unless they already end in one. When `uow.md` already exists, adopted or appearing meanwhile, keep it and warn `notes-kept`.
+   1. Make the working folder. One that appeared since the check is `name-taken`, with a `partial`.
+   2. Create `uow.md` exclusively: `# <title>` and a newline, then, with non-empty `notes`, a blank line and the notes, followed by a newline unless they already end in one.
    3. Write the manifest, `{ "schema": 1, "id": <id>, "kind": <kind> }`, in the [file format](design-spec.md#file-format): to a hidden temp file in the working folder, `.uow.json.<random>.tmp`, flushed, then hard-linked as `uow.json`, and the temp file removed. A link that fails because `uow.json` exists is `unit-exists`, with a `partial`. A temp file that can't be removed is left: it is hidden.
 6. **Report:** read the new unit as [`where`](#where) does, and return it with the warnings that read gives.
 
@@ -638,8 +637,8 @@ Make one unit: its start and done tasks in koan, linked to its parent's, then it
 | `invalid-name` | `path` breaks [Names](design-spec.md#names), or is over 193 characters. |
 | `unknown-kind` | `kind` is not defined. |
 | `parent-not-found` | The parent is not a unit. |
-| `name-taken` | An entry in the parent's folder takes the name in another case, or is a file with it. |
 | `unit-exists` | The unit's `uow.json` exists: found by the check, with nothing made, or by the manifest's link, with a `partial`. |
+| `name-taken` | An entry in the parent's folder has the name, exactly or in another case: found by the check, with nothing made, or by making the working folder, with a `partial`. |
 | `koan-failed` | koan failed: finding the parent's tasks, with nothing made; or making the tasks or linking the parent, with a `partial` when anything was made. When koan's outcome is unknown (`error` `null`) while making the tasks or linking the parent, more may have been made than `partial` lists. |
 
 `io` and `internal` come with a `partial` when anything was made and the manifest is not yet linked.
@@ -650,7 +649,6 @@ Make one unit: its start and done tasks in koan, linked to its parent's, then it
 |---|---|
 | `parent-done` | The parent's done task was done; the new done task was not added to its blockers. |
 | `parent-unlinked` | The parent's start or done task wasn't found; that link was left out. |
-| `notes-kept` | `uow.md` already existed and was kept. |
 | `koan-warning` | A koan call warned. |
 | any of [`where`](#where)'s | Reading the new unit back warned. |
 
@@ -692,6 +690,71 @@ Undo it in this order: `koan delete` each of `tasks`, which also takes the done 
 
 - After a `koan-failed` whose `error` is `null`, from making the tasks or linking the parent: an unclear outcome, below.
 - After any other error without `partial`: safe. Nothing was made, or the unit exists and running it again is `unit-exists`.
-- After an error with `partial`: undo what it lists first. Run again without undoing, `create` adopts the folder and makes a second pair of tasks, and the first pair are orphans that still block the parent's done task.
+- After an error with `partial`: undo what it lists first. Run again without undoing, `create` is `name-taken` when it had made the folder; when it hadn't, it makes a second pair of tasks, and the first pair are orphans that still block the parent's done task.
 - After success: running it again is `unit-exists`.
 - After a crash or an unclear outcome: not safe as it stands. Run [`list`](#list) on the parent, or with no unit for a top-level path: an `orphan-task` carrying a fresh `id` is what the crash left, to delete before running `create` again; a unit at the path means it succeeded.
+
+### adopt
+
+Make an existing folder a unit, leaving everything in it as it was: its start and done tasks in koan, linked to its parent's, then, when it has none, `uow.md`, then its manifest. The same as [`create`](#create) in every part but those below, which differ in what is done to the working folder.
+
+**Kind:** write.
+
+**Input schema:**
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "adopt-input",
+  "type": "object",
+  "required": ["path", "kind"],
+  "properties": {
+    "path": { "type": "string", "description": "The folder's path, which becomes the unit's." },
+    "kind": { "type": "string" },
+    "title": { "type": "string", "minLength": 1, "description": "uow.md's heading, when the folder has no uow.md. Default: the unit's name." }
+  },
+  "additionalProperties": false
+}
+```
+
+**Additional validation:** as `create`'s.
+
+**Preconditions:** as `create`'s, except that the parent's folder holds a directory with exactly the name and no `uow.json`, and no other entry with the name in another case.
+
+**Effects:** as `create`'s, except:
+
+- **Step 1.4:** a directory with exactly the name that holds a `uow.json` is `unit-exists`; one without is the working folder to adopt; no entry with exactly the name is `not-found` (`reason` `no-folder`), checked after `name-taken`. Any other entry whose name equals the new name, exactly or ignoring ASCII case, is `name-taken`.
+- **Step 5.1:** no folder is made.
+- **Step 5.2:** when the folder has no `uow.md`, create one exclusively: `# <title>` and a newline. When it has one, or one appears meanwhile, keep it, untouched.
+
+**Output schema:**
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "adopt-output",
+  "$ref": "create-output"
+}
+```
+
+**Errors,** in this order:
+
+| Kind | When |
+|---|---|
+| `invalid-input` | As `create`'s, but `notes` is an unknown field. |
+| `invalid-rules`, `unsupported-format` | The rules file is unusable. |
+| `invalid-name` | `path` breaks [Names](design-spec.md#names), or is over 193 characters. |
+| `unknown-kind` | `kind` is not defined. |
+| `parent-not-found` | The parent is not a unit. |
+| `unit-exists` | The folder's `uow.json` exists: found by the check, with nothing made, or by the manifest's link, with a `partial`. |
+| `name-taken` | A file has the name, or an entry has it in another case. |
+| `not-found` | No folder has the name. |
+| `koan-failed` | As `create`'s. |
+
+`io` and `internal` come with a `partial` when anything was made and the manifest is not yet linked.
+
+**Warnings:** as `create`'s.
+
+**Partial:** `create-partial`, whose `files` can only list `uow.md`, since `adopt` never makes the folder. Undo it as `create`'s.
+
+**Retry safety:** as `create`'s, except that running it again without undoing a `partial` always makes a second pair of tasks, since the folder is still there to adopt.

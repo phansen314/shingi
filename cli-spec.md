@@ -2,7 +2,7 @@
 
 The `shingi` command-line interface: how each command maps to the [operations](operations.md), how input gets in, and what comes out. The CLI adds no behavior of its own beyond parsing arguments, reading `--input` and `--notes-file`, passing `where` the current directory, and passing `--config` on to the rules; everything about the data is specified by the operations and the [design spec](design-spec.md).
 
-The global rules follow koan's CLI spec almost word for word, so one habit covers koan, sesshin, and shingi. Where shingi differs, this document says so: its subject is optional for `where` and `list`, `create` takes two, and it has a `--config` option.
+The global rules follow koan's CLI spec almost word for word, so one habit covers koan, sesshin, and shingi. Where shingi differs, this document says so: its subject is optional for `where` and `list`, `create` and `adopt` take two, and it has a `--config` option.
 
 ## Global behavior
 
@@ -44,9 +44,9 @@ jq -n --arg d "$PWD" '{cwd: $d}' | shingi where -i -
 
 The command line is parsed in the GNU style, with koan's rules:
 
-- **Command names are operation names:** `where`, `list`, `kinds`, `version`, `create`. There are no aliases.
+- **Command names are operation names:** `where`, `list`, `kinds`, `version`, `create`, `adopt`. There are no aliases.
 - **Option names are field names,** in kebab-case. `--input`, `--notes-file`, `--config`, and `--help` are the exceptions: none sets a field under its own name.
-- **Arguments are for required subjects,** with two departures from koan. `where` and `list` take their unit as an optional argument, since a unit is a path and no option could be confused with one; and `create` takes two, its path and its kind, in that order. Everything else is an option, so a bare token always has one meaning.
+- **Arguments are for required subjects,** with two departures from koan. `where` and `list` take their unit as an optional argument, since a unit is a path and no option could be confused with one; and `create` and `adopt` take two, its path and its kind, in that order. Everything else is an option, so a bare token always has one meaning.
 - **Paths are exact.** A unit path is taken exactly as given: never completed, normalized, case-folded, or derived from the working directory (but see [`where`](#where)). `HOME-12345/` and `/HOME-12345` reach the operation as given, which rejects them as `invalid-name`.
 - **Options and arguments follow the command,** in any order: `shingi <command> [options and arguments]`. `--help` may also be given with no command.
 - **`--`** ends options; everything after it is an argument. A lone `-` is an ordinary argument.
@@ -103,7 +103,7 @@ A usage error is a problem with the command line itself: an unknown command or o
 | any other | Outcome unknown: shingi was terminated before it finished (e.g. `128+n` for signal `n`). Handle like `3`. |
 
 - **One code for all operation errors.** Callers branch on the envelope's `kind`, not the exit code.
-- **Outcome unknown.** On `3` or any status outside `0`–`2`, the operation may already have taken effect. The caller follows the operation's **Retry safety** for a crash. For a read, rerunning is always safe; for [`create`](operations.md#create), it is not, as it stands.
+- **Outcome unknown.** On `3` or any status outside `0`–`2`, the operation may already have taken effect. The caller follows the operation's **Retry safety** for a crash. For a read, rerunning is always safe; for [`create`](operations.md#create) and [`adopt`](operations.md#adopt), it is not, as it stands.
 - **Unwritable stdout.** When stdout cannot be written (a closed pipe, a full disk behind a redirect), shingi exits `3` with a notice on stderr. This applies even when nothing was run, e.g. a usage error with stdout closed.
 - **Interrupts are crashes.** An interrupt or termination signal (Ctrl-C, `kill`, a harness's timeout) ends shingi as the signal's default would: no envelope, no traceback, exit `128+n`. A koan call it was waiting on is koan's to finish or not.
 
@@ -294,6 +294,40 @@ shingi create HOME-12345/foo-split group --title 'foo: seven stacked MRs'
 shingi create HOME-12345/foo-split/1-schema branch --title 'foo: schema changes' | jq -r .result.unit.start.id
 printf 'Story: retry failed payments.\n' | shingi create HOME-12345 group --notes-file -
 shingi create HOME-12345/research group 2>/dev/null | jq -e .ok >/dev/null || echo 'create failed'
+```
+
+### adopt
+
+Make an existing folder a unit, leaving everything in it as it was. Runs [`adopt`](operations.md#adopt).
+
+**Synopsis:** `shingi adopt <path> <kind> [--title <text>]`, or `shingi adopt -i <file>`.
+
+**Operation:** [`adopt`](operations.md#adopt).
+
+**Arguments:**
+
+| Argument | Field | Notes |
+|---|---|---|
+| `<path>` | `/path` | Required unless `--input` is given. The folder's path, exact. |
+| `<kind>` | `/kind` | Required unless `--input` is given. A kind the rules define. |
+
+**Options:**
+
+| Option | Field | Default |
+|---|---|---|
+| `--title <text>` | `/title` | The unit's name. One line. Used only when the folder has no `uow.md`. |
+
+**Input:** none beyond the Arguments and Options mapping.
+
+**Output:** Passthrough: `{ "unit" }`, the new unit.
+
+**Errors:** none beyond the operation's.
+
+**Examples:**
+
+```sh
+shingi adopt HOME-12345 group                   # ~/work/HOME-12345 already holds the story's notes
+shingi adopt HOME-12345/spike branch --title 'foo: spike' | jq -r .result.unit.title
 ```
 
 ## Not included
