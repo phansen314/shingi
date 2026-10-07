@@ -28,13 +28,64 @@ def kinds(inp, config):
 
 def where(inp, config):
     rules = rules_file.load(config)
+    return units.read_unit(rules, named_unit(rules, inp))
+
+
+def named_unit(rules, inp):
+    """The path of the unit `where` and `context` report: `unit`, or the one `cwd` is in."""
     if "cwd" in inp:
-        path = units.resolve_directory(rules, inp["cwd"])
-    else:
-        path = inp["unit"]
-        units.check_path(path)
-        units.resolve(rules, path)
-    return units.read_unit(rules, path)
+        return units.resolve_directory(rules, inp["cwd"])
+    path = inp["unit"]
+    units.check_path(path)
+    units.resolve(rules, path)
+    return path
+
+
+def context(inp, config):
+    rules = rules_file.load(config)
+    path = named_unit(rules, inp)
+    manifest, warnings = units.check_manifest(rules, path)
+    start = done = tasks = None
+    if manifest is not None:
+        kfolder = units.koan_folder(rules, path)
+        try:
+            found, koan_warnings = koan.list_tasks(kfolder, recursive=False, tags=())
+        except OperationError as error:
+            if error.kind != "koan-failed":
+                raise
+            warnings += units.koan_failed(error, path)
+        else:
+            start = units.match(found, kfolder, manifest["id"], "shingi-start")
+            done = units.match(found, kfolder, manifest["id"], "shingi-done")
+            warnings += units.missing_tasks(path, start, done) + koan_warnings
+            tasks = [
+                {k: t[k] for k in ("id", "title", "readiness", "blocking", "tags", "notes_path")}
+                for t in sorted(found, key=lambda t: t["id"])
+                if t["folder"] == kfolder and t["readiness"] != "done"
+            ]
+    parent = units.parent_of(path)
+    segments = path.split("/")
+    ancestors = []
+    for i in range(1, len(segments)):
+        ancestor = "/".join(segments[:i])
+        folder = units.working_folder(rules, ancestor)
+        try:
+            ancestor_manifest = units.read_manifest(folder)
+        except units.UnusableManifest:
+            ancestor_manifest = None
+        ancestors.append({
+            "path": ancestor,
+            "id": ancestor_manifest and ancestor_manifest["id"],
+            "kind": ancestor_manifest and ancestor_manifest["kind"],
+            "title": units.read_title(folder),
+        })
+    return {
+        "unit": units.build_unit(rules, path, manifest, start, done),
+        "ancestors": ancestors,
+        "notes": units.read_notes(units.working_folder(rules, path)),
+        "parent_notes": None if parent is None else units.read_notes(units.working_folder(rules, parent)),
+        "tasks": tasks,
+    }, units.sort_warnings(warnings)
 
 
 def list_units(inp, config):

@@ -143,12 +143,16 @@ def kind_of(folder):
         return None
 
 
-def read_title(folder):
+def read_notes(folder):
+    """The folder's uow.md, whole; "" when it is missing or unreadable."""
     try:
-        text = (folder / NOTES).read_text(encoding="utf-8", errors="replace")
+        return (folder / NOTES).read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
-    for line in text.splitlines():
+
+
+def read_title(folder):
+    for line in read_notes(folder).splitlines():
         if line.strip():
             return line[2:].strip() if line.startswith("# ") else ""
     return ""

@@ -46,7 +46,7 @@ claude plugin marketplace add phansen314/shingi
 claude plugin install shingi@shingi
 ```
 
-Then, from a clone of this repo, add the permission rules, which let `where`, `list`, `kinds`, and `version` run without a prompt while `create` and `adopt`, which change things, still ask:
+Then, from a clone of this repo, add the permission rules, which let `where`, `context`, `list`, `kinds`, and `version` run without a prompt while `create` and `adopt`, which change things, still ask:
 
 ```sh
 scripts/install.sh               # every agent whose CLI is on PATH
@@ -63,7 +63,7 @@ Claude Code, in `~/.claude/settings.json`:
 ```json
 {
   "permissions": {
-    "allow": ["Bash(shingi where:*)", "Bash(shingi list:*)", "Bash(shingi kinds:*)", "Bash(shingi version:*)", "Bash(jq:*)"],
+    "allow": ["Bash(shingi where:*)", "Bash(shingi context:*)", "Bash(shingi list:*)", "Bash(shingi kinds:*)", "Bash(shingi version:*)", "Bash(jq:*)"],
     "ask": ["Bash(shingi create:*)", "Bash(shingi adopt:*)"]
   }
 }
@@ -76,6 +76,7 @@ OpenCode, in `~/.config/opencode/opencode.json` (the script leaves an `opencode.
   "permission": {
     "bash": {
       "shingi where*": "allow",
+      "shingi context*": "allow",
       "shingi list*": "allow",
       "shingi kinds*": "allow",
       "shingi version*": "allow",

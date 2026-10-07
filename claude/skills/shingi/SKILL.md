@@ -59,6 +59,14 @@ shingi where HOME-12345/foo-split/1-schema      # a unit by its path
 
 - With no path, `where` works from anywhere in a unit's working folder, working material included. It does **not** work from a worktree: code lives outside the working root. A unit's notes say where its code is (below).
 - **Read the unit's `uow.md` (`notes_path`)** for what it is for, what was decided, and where its code is.
+
+**To start work on a unit, run `shingi context`** (with its path, or from its working folder): one call for everything you need to begin:
+
+```sh
+shingi context HOME-12345/foo-split/1-schema
+```
+
+`.result.unit` is what `where` returns; `.result.ancestors` is the chain above it, top-level unit first (`path`, `id`, `kind`, `title`), so you know what your piece is for; `.result.notes` and `.result.parent_notes` are its and its parent's `uow.md`, whole; `.result.tasks` is every open task in its own koan folder (`id`, `title`, `readiness`, `blocking`, `tags`, `notes_path`), its start task among them until the unit is begun. `tasks` is `null` when koan failed or the manifest is unusable: the warnings say which. Its output holds two notes files, so it is larger than `where`'s; print it as is.
 - Paths are exact and case-sensitive: `HOME-12345`, not `home-12345`; no leading or trailing `/`.
 
 The whole tree, or one subtree, in one call:
@@ -156,8 +164,9 @@ koan frontier --folder <koan folder> --tags-all shingi-done --limit 20 --fields 
 
 **A coordinator** starts in a parent unit's working folder, `shingi where` for itself and `shingi list <its path>` for the picture: each unit's state, koan folder, and notes, whose `## Code` names the worktree to start a worker in. Its decisions are the shingi tasks on its frontier (`koan frontier --folder <its koan folder> --tags-all shingi --limit 20 --fields id,title,folder`): units ready to begin, and units ready to close. Closing a parent whose children are all done is its job.
 
-**A worker** starts in a worktree, where `shingi where` can't find its unit and `CLAUDE.md` is the repository's. So **spawn a worker with its unit's `shingi where` facts in its first prompt** (path, koan folder, notes path, done task ID), and what it is asked to do. A worker:
+**A worker** starts in a worktree, where `shingi` can't find its unit from the current directory and `CLAUDE.md` is the repository's. So **spawn a worker with `run shingi context <its path>` in its first prompt**, and what it is asked to do. A worker:
 
+- runs `shingi context <its path>` first, and reads what it returns before doing anything else;
 - takes its next task from `koan frontier --folder <its koan folder> --recursive=false`: its own unit's, never a child's;
 - stops and says so when that task is its unit's start task: the unit hasn't been begun, and that isn't the worker's call;
 - marks no task tagged `shingi` but its own unit's done task, and that only when asked to finish the unit;

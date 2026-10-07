@@ -17,6 +17,7 @@ COMMANDS = {
     "version": (operations.version, [], {}),
     "kinds": (operations.kinds, [], {}),
     "where": (operations.where, ["unit?"], {}),
+    "context": (operations.context, ["unit?"], {}),
     "list": (operations.list_units, ["unit?"], {}),
     "create": (
         operations.create,
@@ -75,7 +76,7 @@ def parse(argv):
     inp.update(zip((name.rstrip("?") for name in positional), args))
     for field, file in files.items():
         inp[field] = read_text(file, field)
-    if command == "where" and "unit" not in inp:
+    if command in ("where", "context") and "unit" not in inp:
         inp["cwd"] = current_directory()
     return operation, inp, config
 

@@ -48,12 +48,13 @@ def run(call, payload):
     return envelope, koan_warnings(call, envelope)
 
 
-def list_tasks(folder, recursive):
-    """Every task tagged `shingi` in `folder`, none when the folder doesn't exist yet, and koan's warnings."""
-    envelope, warnings = run(
-        "list",
-        {"folder": folder, "recursive": recursive, "readiness": ["ready", "blocked", "done"], "tags_all": ["shingi"]},
-    )
+def list_tasks(folder, recursive, tags=("shingi",)):
+    """Every task in `folder` with all of `tags`, none when the folder doesn't exist yet, and koan's
+    warnings."""
+    payload = {"folder": folder, "recursive": recursive, "readiness": ["ready", "blocked", "done"]}
+    if tags:
+        payload["tags_all"] = list(tags)
+    envelope, warnings = run("list", payload)
     if envelope["ok"]:
         return envelope["result"]["tasks"], warnings
     error = envelope["error"]

@@ -142,6 +142,16 @@ cd "$HOME"
 check "outside the working root" 1 '.error.details.reason == "outside-root"' -- where
 check "a path that isn't a unit" 1 '.error.details | .reason == "not-a-unit" and .missing == "scratch"' -- where scratch
 
+echo "== context"
+check "the unit, as where" 0 '.result.unit == ('"$("$SHINGI" where HOME-1/a | jq -c .result)"')' -- context HOME-1/a
+check "its ancestors" 0 '.result.ancestors == [{path: "HOME-1", id: .result.ancestors[0].id, kind: "group", title: "Payment retries"}]' -- context HOME-1/a
+check "its and its parent's notes" 0 '.result.notes == "# a\n" and .result.parent_notes == "# Payment retries\n"' -- context HOME-1/a
+check "its open tasks, start task first" 0 '[.result.tasks[] | .tags[1]] == ["shingi-start", "shingi-done"]' -- context HOME-1/a
+cd "$HOME/work/HOME-1/a"
+check "from its working folder" 0 '.result.unit.path == "HOME-1/a"' -- context
+cd "$HOME"
+check "a top-level unit" 0 '.result.ancestors == [] and .result.parent_notes == null' -- context HOME-1
+
 echo "== list"
 check "every unit, in path order" 0 '[.result.units[].path] == ["HOME-1", "HOME-1/a", "HOME-1/b", "HOME-2"] and .result.root == null' -- list
 check "states" 0 '[.result.units[].state] == ["started", "not-started", "not-started", "not-started"]' -- list
