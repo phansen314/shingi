@@ -26,7 +26,7 @@ description = "Work on one branch of one repository."
 
 FAKE_KOAN = """\
 #!/usr/bin/env python3
-# koan, failing on cue: FAKE_KOAN_<CALL>=error|warn-error|garbage|crash|warn|partial (CALL as LIST, CREATE_BATCH,
+# koan, failing on cue: FAKE_KOAN_<CALL>=error|warn-error|garbage|crash|sleep|warn|partial (CALL as LIST, CREATE_BATCH,
 # BLOCK); partial does the call, then fails with what it made as koan's partial. FAKE_KOAN_<CALL>_TOUCH=<file>
 # creates that file after the call, to stage a race.
 import json, os, subprocess, sys
@@ -37,6 +37,10 @@ if mode == "garbage":
     sys.exit(0)
 if mode == "crash":
     sys.exit(137)
+if mode == "sleep":  # tell the test it's waiting, then wait
+    open(os.environ["FAKE_KOAN_STARTED"], "x").close()
+    import time
+    time.sleep(5)
 if mode in ("error", "warn-error"):
     warnings = [{"kind": "unusable-file", "message": "bad task file", "paths": ["/x/9.json"], "ids": [9], "reason": "corrupt"}]
     error = {"kind": "io", "message": "disk on fire", "details": {}}

@@ -73,6 +73,8 @@ check "version" 0 '.ok and (.result.version | type == "string")' -- version
 check "kinds: no rules file" 1 '.error.kind == "invalid-rules" and .error.details.reason == "missing"' -- kinds
 check "no command" 2 '.error.kind == "usage"' --
 check "unknown command" 2 '.error.details.problems[0].argument == "init"' -- init
+expect "--help" '[[ $("$SHINGI" --help) == "Usage: shingi <command>"* ]]'
+expect "unwritable stdout is exit 3" '(exec 1>&-; "$SHINGI" version 2>/dev/null); [[ $? == 3 ]]'
 
 echo "== rules"
 koan init '~/tasks'
