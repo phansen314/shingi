@@ -2,7 +2,7 @@
 
 The `shingi` command-line interface: how each command maps to the [operations](operations.md), how input gets in, and what comes out. The CLI adds no behavior of its own beyond parsing arguments, reading `--input` and `--notes-file`, passing `where` the current directory, and passing `--config` on to the rules; everything about the data is specified by the operations and the [design spec](design-spec.md).
 
-The global rules follow koan's CLI spec almost word for word, so one habit covers koan, sesshin, and shingi. Where shingi differs, this document says so: its subject is optional for `where` and `list`, `create` and `adopt` take two, and it has a `--config` option.
+The global rules follow koan's CLI spec almost word for word, so one habit covers koan, sesshin, and shingi. Where shingi differs, this document says so: its subject is optional for `where`, `context`, and `list`, `create` and `adopt` take two, and it has a `--config` option.
 
 ## Global behavior
 
@@ -44,9 +44,9 @@ jq -n --arg d "$PWD" '{cwd: $d}' | shingi where -i -
 
 The command line is parsed in the GNU style, with koan's rules:
 
-- **Command names are operation names:** `where`, `list`, `kinds`, `version`, `create`, `adopt`. There are no aliases.
+- **Command names are operation names:** `where`, `context`, `list`, `kinds`, `version`, `create`, `adopt`. There are no aliases.
 - **Option names are field names,** in kebab-case. `--input`, `--notes-file`, `--config`, and `--help` are the exceptions: none sets a field under its own name.
-- **Arguments are for required subjects,** with two departures from koan. `where` and `list` take their unit as an optional argument, since a unit is a path and no option could be confused with one; and `create` and `adopt` take two, its path and its kind, in that order. Everything else is an option, so a bare token always has one meaning.
+- **Arguments are for required subjects,** with two departures from koan. `where`, `context`, and `list` take their unit as an optional argument, since a unit is a path and no option could be confused with one; and `create` and `adopt` take two, its path and its kind, in that order. Everything else is an option, so a bare token always has one meaning.
 - **Paths are exact.** A unit path is taken exactly as given: never completed, normalized, case-folded, or derived from the working directory (but see [`where`](#where)). `HOME-12345/` and `/HOME-12345` reach the operation as given, which rejects them as `invalid-name`.
 - **Options and arguments follow the command,** in any order: `shingi <command> [options and arguments]`. `--help` may also be given with no command.
 - **`--`** ends options; everything after it is an argument. A lone `-` is an ordinary argument.
@@ -168,6 +168,36 @@ shingi where | jq -r .result.path                                  # which unit 
 cd "$(shingi where HOME-12345/foo-split/1-schema | jq -r .result.working_folder)"
 shingi where HOME-12345 | jq -r '.result.children[].path'
 shingi where HOME-12345/foo-split/1-schema | jq '.result | {state, start: .start.id, done: .done.id}'
+```
+
+### context
+
+Everything an agent needs to start work on one unit: the unit, its ancestors, its and its parent's notes, and its open tasks. Runs [`context`](operations.md#context).
+
+**Synopsis:** `shingi context [<unit>]`, or `shingi context -i <file>`.
+
+**Operation:** [`context`](operations.md#context).
+
+**Arguments:**
+
+| Argument | Field | Notes |
+|---|---|---|
+| `<unit>` | `/unit` | Optional. The unit's path, exact. |
+
+**Options:** none.
+
+**Input:** as [`where`](#where)'s: with no `<unit>` and no `--input`, the CLI sets `cwd` to the process's current directory.
+
+**Output:** Passthrough.
+
+**Errors:** as [`where`](#where)'s.
+
+**Examples:**
+
+```sh
+shingi context HOME-12345/foo-split/1-schema                        # a worker's first command
+shingi context | jq -r '.result.ancestors[] | "\(.path)\t\(.title)"'  # why this unit exists
+shingi context | jq -r '.result.tasks[] | select(.readiness == "ready") | "\(.id)\t\(.title)"'
 ```
 
 ### list

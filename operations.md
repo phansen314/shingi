@@ -2,7 +2,7 @@
 
 An operation is a single query of, or change to, what the [design spec](design-spec.md) defines. Operations are the domain layer, small and orthogonal. They are not CLI commands, though each command runs exactly one: [cli-spec.md](cli-spec.md) gives each command's arguments and maps them onto the input fields here.
 
-The operations are the three that read the tree, [`where`](#where), [`list`](#list), and [`kinds`](#kinds); [`version`](#version); and the two that change anything, [`create`](#create) and [`adopt`](#adopt).
+The operations are the four that read the tree, [`where`](#where), [`context`](#context), [`list`](#list), and [`kinds`](#kinds); [`version`](#version); and the two that change anything, [`create`](#create) and [`adopt`](#adopt).
 
 Terms follow the design spec's [Terms](design-spec.md#terms).
 
@@ -16,7 +16,7 @@ Terms follow the design spec's [Terms](design-spec.md#terms).
 
 ## Operation kinds
 
-- ***read*** — Changes nothing and takes no lock: [`where`](#where), [`list`](#list), [`kinds`](#kinds), and [`version`](#version).
+- ***read*** — Changes nothing and takes no lock: [`where`](#where), [`context`](#context), [`list`](#list), [`kinds`](#kinds), and [`version`](#version).
 - ***write*** — Changes koan's tree and the working root: [`create`](#create) and [`adopt`](#adopt). Neither takes a lock of its own; koan serializes its own writes, and the manifest's exclusive create settles a race (see [Concurrency](design-spec.md#concurrency)).
 
 ## Operation template
@@ -91,7 +91,7 @@ Every operation returns one of two shapes:
 | `invalid-input` | The input failed its schema or its additional validation. Reports every problem, not just the first. | `problems`: `{field, reason}` list, `field` a JSON Pointer into the input, `reason` for people; sorted by `field`, then `reason`. |
 | `invalid-rules` | The rules file is missing, unreadable, not TOML, or breaks the design spec's [Fields](design-spec.md#fields). A working root that isn't an existing directory is one of these. | `path`: the rules file; `reason`: `missing`, `unreadable`, `syntax`, or `invalid`; `problems`: for `invalid`, a `{field, reason}` list, `field` the dotted TOML key (`roots.working`, `kind.branch.suggests`), sorted by `field`; otherwise empty. `code`: the symbolic OS error, for `unreadable`. |
 | `unsupported-format` | The rules file's `schema` is an integer shingi doesn't support. | `path`; `schema`: the one found; `supported`: the ones shingi supports, ascending. |
-| `not-found` | The unit named is not a unit; from [`where`](#where) without one, the current directory is in no unit; or, from [`adopt`](#adopt), the folder to adopt doesn't exist. | `unit`: the path given, or `null`; `missing`: the shortest prefix of `unit` that is not a unit (the first folder on the path that doesn't exist, matches only ignoring case, or holds no `uow.json`), or `null`; `cwd`: the directory given, or `null`; `reason`: `not-a-unit` (a path was given), `outside-root`, `no-unit`, or, from `adopt`, `no-folder` (with `missing` the path itself). |
+| `not-found` | The unit named is not a unit; from [`where`](#where) or [`context`](#context) without one, the current directory is in no unit; or, from [`adopt`](#adopt), the folder to adopt doesn't exist. | `unit`: the path given, or `null`; `missing`: the shortest prefix of `unit` that is not a unit (the first folder on the path that doesn't exist, matches only ignoring case, or holds no `uow.json`), or `null`; `cwd`: the directory given, or `null`; `reason`: `not-a-unit` (a path was given), `outside-root`, `no-unit`, or, from `adopt`, `no-folder` (with `missing` the path itself). |
 | `invalid-name` | A path breaks the design spec's [Names](design-spec.md#names). | `path`: as given; `index`: the first bad segment's position, from `0`; `segment`: that segment; `reason`: `empty` (a leading, trailing, or doubled `/`, or an empty path), `characters`, `length`, `hyphen` (starts or ends with `-`), or, from [`create`](#create) or [`adopt`](#adopt) only, `path-length` (the whole path is over 193 characters; `index` and `segment` `null`). |
 | `parent-not-found` | `create`'s or `adopt`'s path has more than one segment, and its parent is not a unit. | `parent`: the parent's path; `missing`: as for `not-found`. |
 | `name-taken` | An entry in the parent's folder has the new name in another case; or has it exactly and is, for `create`, a plain folder or a file, or, for `adopt`, a file. | `entry`: the entry's name as on disk; `type`: `unit`, `folder`, or `file` (anything not a directory). |
@@ -201,7 +201,7 @@ A path names a unit when, for each prefix of it from the first segment, the fold
 
 ### Resolving a directory
 
-[`where`](#where) without a unit names the unit `cwd` is in. `cwd`, resolved to its real path, is outside the working root unless it is the working root or under it (`not-found`, `reason` `outside-root`). Otherwise its segments below the working root are walked from the first: the unit is the longest prefix every folder of which holds a `uow.json`, so a directory inside a unit's working material is in that unit. When the first segment's folder holds none, or `cwd` is the working root, it is in no unit (`not-found`, `reason` `no-unit`).
+[`where`](#where) and [`context`](#context) without a unit name the unit `cwd` is in. `cwd`, resolved to its real path, is outside the working root unless it is the working root or under it (`not-found`, `reason` `outside-root`). Otherwise its segments below the working root are walked from the first: the unit is the longest prefix every folder of which holds a `uow.json`, so a directory inside a unit's working material is in that unit. When the first segment's folder holds none, or `cwd` is the working root, it is in no unit (`not-found`, `reason` `no-unit`).
 
 ### Walking the tree
 
@@ -229,7 +229,7 @@ Every read of tasks is one koan `list`:
 { "folder": "<koan folder>", "recursive": false, "readiness": ["ready", "blocked", "done"], "tags_all": ["shingi"] }
 ```
 
-with `recursive` `true` for [`list`](#list). A task **matches** a unit when its `folder` is the unit's koan folder, its `extra["shingi-unit"]` is the unit's `id`, and its `extra.source` is `shingi-start` (its start task) or `shingi-done` (its done task). When several match one role, the lowest ID is reported. A unit with an unusable manifest has no `id`, so nothing matches it.
+with `recursive` `true` for [`list`](#list), and no `tags_all` for [`context`](#context), which needs every task in the folder. A task **matches** a unit when its `folder` is the unit's koan folder, its `extra["shingi-unit"]` is the unit's `id`, and its `extra.source` is `shingi-start` (its start task) or `shingi-done` (its done task). When several match one role, the lowest ID is reported. A unit with an unusable manifest has no `id`, so nothing matches it.
 
 ### Deriving state
 
@@ -359,6 +359,102 @@ Return everything about one unit: the unit named, or the one a directory is in.
 | `missing-task` | Its start task, or its done task, is not found. |
 | `koan-failed` | koan failed; both tasks are `null`. |
 | `koan-warning` | koan warned. |
+
+**Retry safety:**
+
+- After anything: safe. It changes nothing.
+
+### context
+
+Return everything an agent needs to start work on one unit: the unit, as [`where`](#where) returns it, its ancestors, its and its parent's notes, and its open tasks.
+
+**Kind:** read.
+
+**Input schema:**
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "context-input",
+  "type": "object",
+  "properties": {
+    "unit": { "type": "string", "description": "The unit's path." },
+    "cwd": { "type": "string", "description": "A directory whose unit to report. The CLI passes its own when no unit is given." }
+  },
+  "additionalProperties": false
+}
+```
+
+**Additional validation:** as `where`'s.
+
+**Preconditions:** as `where`'s.
+
+**Effects:**
+
+1. Find and read the unit as `where` does, steps 1 to 3.
+2. For each ancestor, from the top-level unit down to the parent, [read its manifest and title](#reading-a-unit), as a child's are read: an unusable manifest gives `null` `id` and `kind`, and no warning.
+3. Read the unit's `uow.md` and its parent's whole, as UTF-8 with invalid bytes replaced.
+4. With a usable manifest, run one koan `list` of the unit's koan folder as [Finding start and done tasks](#finding-start-and-done-tasks) says, with no `tags_all`: its start and done tasks are matched from it, and its open tasks are every task in it whose readiness isn't `done`. Otherwise both tasks and `tasks` are `null`, and koan isn't run.
+
+**Output schema:**
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "context-output",
+  "type": "object",
+  "required": ["unit", "ancestors", "notes", "parent_notes", "tasks"],
+  "properties": {
+    "unit": { "$ref": "unit" },
+    "ancestors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "id", "kind", "title"],
+        "properties": {
+          "path": { "$ref": "unit-path" },
+          "id": { "type": ["string", "null"] },
+          "kind": { "type": ["string", "null"] },
+          "title": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "description": "From the top-level unit down to the parent; empty for a top-level unit."
+    },
+    "notes": { "type": "string", "description": "The unit's uow.md; \"\" when missing or unreadable." },
+    "parent_notes": { "type": ["string", "null"], "description": "The parent's uow.md, as notes; null for a top-level unit." },
+    "tasks": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "title", "readiness", "blocking", "tags", "notes_path"],
+            "properties": {
+              "id": { "type": "integer", "minimum": 1 },
+              "title": { "type": "string" },
+              "readiness": { "enum": ["ready", "blocked"] },
+              "blocking": { "type": "array", "items": { "type": "integer" } },
+              "tags": { "type": "array", "items": { "type": "string" } },
+              "notes_path": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      ],
+      "description": "The open tasks in the unit's koan folder, as koan reports them; null when the manifest is unusable or koan failed."
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+**Order:** `ancestors` from the top down; `tasks` by `id`.
+
+**Errors,** in this order: as `where`'s.
+
+**Warnings:** as `where`'s; with `koan-failed`, `tasks` is `null` too.
 
 **Retry safety:**
 
