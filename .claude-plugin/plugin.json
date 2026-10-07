@@ -1,0 +1,13 @@
+{
+  "name": "shingi",
+  "description": "Name and place every piece of work with the shingi CLI: units of work, each with a koan folder for its tasks and a working folder for its notes.",
+  "author": {
+    "name": "phansen314"
+  },
+  "homepage": "https://github.com/phansen314/shingi",
+  "repository": "https://github.com/phansen314/shingi",
+  "license": "MIT",
+  "skills": [
+    "./claude/skills/"
+  ]
+}

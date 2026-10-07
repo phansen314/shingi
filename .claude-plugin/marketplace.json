@@ -1,0 +1,14 @@
+{
+  "name": "shingi",
+  "description": "shingi: units of work for Claude Code.",
+  "owner": {
+    "name": "phansen314"
+  },
+  "plugins": [
+    {
+      "name": "shingi",
+      "source": "./",
+      "description": "Name and place every piece of work with the shingi CLI: units of work, each with a koan folder for its tasks and a working folder for its notes."
+    }
+  ]
+}
