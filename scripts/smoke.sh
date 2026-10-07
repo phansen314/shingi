@@ -77,6 +77,8 @@ check "unknown command" 2 '.error.details.problems[0].argument == "init"' -- ini
 echo "== rules"
 koan init '~/tasks'
 mkdir -p "$HOME/work" "$XDG_CONFIG_HOME/shingi"
+printf 'schema = 1\n[roots]\nkoan = "/work"\nworking = "~/work"\n[kind.group]\nsugests = []\n' >"$XDG_CONFIG_HOME/shingi/shingi.toml"
+check "a typo in the rules" 1 '.error.details.problems == [{field: "kind.group.sugests", reason: "unknown field"}]' -- kinds
 cat >"$XDG_CONFIG_HOME/shingi/shingi.toml" <<'EOF'
 schema = 1
 
