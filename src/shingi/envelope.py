@@ -4,14 +4,16 @@ import json
 
 
 class OperationError(Exception):
-    """An error an operation reports in the envelope, with the warnings gathered before it."""
+    """An error an operation reports in the envelope, with the warnings gathered before it, and
+    for create and adopt, what it made before failing."""
 
-    def __init__(self, kind, message, details=None, warnings=()):
+    def __init__(self, kind, message, details=None, warnings=(), partial=None):
         super().__init__(message)
         self.kind = kind
         self.message = message
         self.details = details if details is not None else {}
         self.warnings = list(warnings)
+        self.partial = partial
 
 
 def success(result, warnings=()):
@@ -19,11 +21,10 @@ def success(result, warnings=()):
 
 
 def failure(error):
-    return {
-        "ok": False,
-        "error": {"kind": error.kind, "message": error.message, "details": error.details},
-        "warnings": error.warnings,
-    }
+    body = {"kind": error.kind, "message": error.message, "details": error.details}
+    if error.partial is not None:
+        body["partial"] = error.partial
+    return {"ok": False, "error": body, "warnings": error.warnings}
 
 
 def encode(envelope):

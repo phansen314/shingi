@@ -26,7 +26,9 @@ description = "Work on one branch of one repository."
 
 FAKE_KOAN = """\
 #!/usr/bin/env python3
-# koan, failing on cue: FAKE_KOAN_<CALL>=error|warn-error|garbage|crash|warn (CALL as LIST, CREATE_BATCH, BLOCK).
+# koan, failing on cue: FAKE_KOAN_<CALL>=error|warn-error|garbage|crash|warn|partial (CALL as LIST, CREATE_BATCH,
+# BLOCK); partial does the call, then fails with what it made as koan's partial. FAKE_KOAN_<CALL>_TOUCH=<file>
+# creates that file after the call, to stage a race.
 import json, os, subprocess, sys
 call = sys.argv[1]
 mode = os.environ.get("FAKE_KOAN_" + call.upper().replace("-", "_"), "")
@@ -46,6 +48,14 @@ if mode == "warn":
     envelope = json.loads(out)
     envelope["warnings"].append({"kind": "unusable-file", "message": "bad task file", "paths": ["/x/9.json"], "ids": [9], "reason": "corrupt"})
     out = (json.dumps(envelope) + "\\n").encode()
+touch = os.environ.get("FAKE_KOAN_" + call.upper().replace("-", "_") + "_TOUCH")
+if touch:
+    open(touch, "x").close()
+if mode == "partial":
+    result = json.loads(out)["result"]
+    partial = {"folders_created": result["folders_created"], "consumed": result["ids"], "ids": result["ids"], "refs": result["refs"]}
+    print(json.dumps({"ok": False, "error": {"kind": "io", "message": "disk on fire", "details": {}, "partial": partial}, "warnings": []}))
+    sys.exit(1)
 sys.stdout.buffer.write(out)
 sys.exit(proc.returncode)
 """
@@ -84,7 +94,7 @@ class ShingiTestCase(unittest.TestCase):
         fake.chmod(0o755)
         self.env["PATH"] = f"{bin_dir}:{self.env['PATH']}"
         for call, mode in modes.items():
-            self.env[f"FAKE_KOAN_{call.upper()}"] = mode
+            self.env[f"FAKE_KOAN_{call.upper()}"] = str(mode)
 
     def koan_show(self, task_id):
         return self.koan("show", str(task_id))["tasks"][0]

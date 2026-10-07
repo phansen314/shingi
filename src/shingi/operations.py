@@ -3,6 +3,7 @@
 Each operation takes its input and the --config file, and returns its result and its warnings.
 """
 
+import errno
 import json
 import os
 import uuid
@@ -197,25 +198,47 @@ def make_unit(inp, config, adopting):
                 ))
 
     unit_id = str(uuid.uuid4())
-    made, koan_warnings = koan.create_batch({
-        "folder": units.koan_folder(rules, path),
-        "tasks": [
-            {
-                "ref": "start",
-                "title": f"Start: {path}",
-                "tags": ["shingi", "shingi-start"],
-                "extra": {"source": "shingi-start", "shingi-unit": unit_id},
-                "blocked_by": [parent_start["id"]] if parent_start else [],
-            },
-            {
-                "ref": "done",
-                "title": f"Done: {path}",
-                "tags": ["shingi", "shingi-done"],
-                "extra": {"source": "shingi-done", "shingi-unit": unit_id},
-                "blocked_by": ["start"],
-            },
-        ],
-    })
+    made = {"koan_folders": [], "tasks": [], "blocked": None, "files": []}
+    try:
+        write_unit(rules, inp, path, kind, unit_id, adopting, parent, parent_start, parent_done, made, warnings)
+    except Exception as exc:
+        raise with_partial(exc, made, warnings)
+    unit, read_warnings = units.read_unit(rules, path)
+    return {"unit": unit}, units.sort_warnings(warnings + read_warnings)
+
+
+def write_unit(rules, inp, path, kind, unit_id, adopting, parent, parent_start, parent_done, made, warnings):
+    """create's steps 3 to 5: make the tasks, link the parent, write the files, recording in
+    `made` what each step made."""
+    try:
+        batch, koan_warnings = koan.create_batch({
+            "folder": units.koan_folder(rules, path),
+            "tasks": [
+                {
+                    "ref": "start",
+                    "title": f"Start: {path}",
+                    "tags": ["shingi", "shingi-start"],
+                    "extra": {"source": "shingi-start", "shingi-unit": unit_id},
+                    "blocked_by": [parent_start["id"]] if parent_start else [],
+                },
+                {
+                    "ref": "done",
+                    "title": f"Done: {path}",
+                    "tags": ["shingi", "shingi-done"],
+                    "extra": {"source": "shingi-done", "shingi-unit": unit_id},
+                    "blocked_by": ["start"],
+                },
+            ],
+        })
+    except OperationError as error:
+        koan_partial = (error.details.get("error") or {}).get("partial") or {}
+        made["koan_folders"] = list(koan_partial.get("folders_created", []))
+        made["tasks"] = list(koan_partial.get("ids", []))
+        raise
+    made["koan_folders"] = list(batch["folders_created"])
+    made["tasks"] = [batch["refs"]["start"], batch["refs"]["done"]]
+    warnings += koan_warnings
+
     if parent_done and parent_done["readiness"] == "done":
         warnings.append(units.warning(
             "parent-done",
@@ -225,24 +248,47 @@ def make_unit(inp, config, adopting):
             {"parent": parent},
         ))
     elif parent_done:
-        _, block_warnings = koan.block(parent_done["id"], [made["refs"]["done"]])
-        koan_warnings += block_warnings
-    warnings += koan_warnings
+        added = [batch["refs"]["done"]]
+        _, koan_warnings = koan.block(parent_done["id"], added)
+        made["blocked"] = {"task": parent_done["id"], "added": added}
+        warnings += koan_warnings
 
+    folder = units.working_folder(rules, path)
     if not adopting:
         try:
             folder.mkdir()
         except FileExistsError:
-            raise name_taken(path, folder.name, "folder")
+            raise name_taken(path, folder.name, entry_type(folder))
+        except OSError as exc:
+            raise io_error(exc, folder)
+        made["files"].append(str(folder))
     title = inp.get("title") or path.rpartition("/")[2]
+    notes = folder / units.NOTES
     try:
-        with open(folder / units.NOTES, "x", encoding="utf-8") as f:
+        with open(notes, "x", encoding="utf-8") as f:
+            made["files"].append(str(notes))
             f.write(notes_text(title, inp.get("notes", "")))
     except FileExistsError:
         pass
-    write_manifest(folder, {"schema": 1, "id": unit_id, "kind": kind})
-    unit, read_warnings = units.read_unit(rules, path)
-    return {"unit": unit}, units.sort_warnings(warnings + read_warnings)
+    except OSError as exc:
+        raise io_error(exc, notes)
+    write_manifest(path, folder, {"schema": 1, "id": unit_id, "kind": kind})
+
+
+def with_partial(exc, made, warnings):
+    """`exc` as the error to report, with the warnings gathered before it and, when anything was
+    made, `made` as its partial."""
+    error = exc if isinstance(exc, OperationError) else OperationError(
+        "internal", f"unexpected {type(exc).__name__}: {exc}"
+    )
+    error.warnings = units.sort_warnings(warnings + error.warnings)
+    if made["koan_folders"] or made["tasks"] or made["blocked"] or made["files"]:
+        error.partial = made
+    return error
+
+
+def io_error(exc, path):
+    return OperationError("io", f"{path}: {exc.strerror}", {"path": str(path), "code": errno.errorcode.get(exc.errno)})
 
 
 def notes_text(title, notes):
@@ -282,14 +328,25 @@ def name_taken(path, entry, kind):
     return OperationError("name-taken", f"{entry} is in the way of {path}", {"entry": entry, "type": kind})
 
 
-def write_manifest(folder, manifest):
-    """Write uow.json once: a hidden temp file, flushed, then hard-linked into place."""
+def write_manifest(path, folder, manifest):
+    """Write uow.json once: a hidden temp file, flushed, then hard-linked into place. A temp file
+    that can't be removed is left: it is hidden."""
     temp = folder / f".{units.MANIFEST}.{uuid.uuid4().hex}.tmp"
-    with open(temp, "x", encoding="utf-8") as f:
-        f.write(json.dumps(manifest, indent=2) + "\n")
-        f.flush()
-        os.fsync(f.fileno())
+    target = folder / units.MANIFEST
+    writing = temp
     try:
-        os.link(temp, folder / units.MANIFEST)
+        with open(temp, "x", encoding="utf-8") as f:
+            f.write(json.dumps(manifest, indent=2) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        writing = target
+        os.link(temp, target)
+    except FileExistsError:
+        raise OperationError("unit-exists", f"{path} already exists", {"manifest": str(target)})
+    except OSError as exc:
+        raise io_error(exc, writing)
     finally:
-        temp.unlink()
+        try:
+            temp.unlink()
+        except OSError:
+            pass
