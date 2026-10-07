@@ -9,15 +9,17 @@ import os
 import uuid
 from importlib.metadata import version as package_version
 
-from shingi import koan, rules as rules_file, units
+from shingi import inputs, koan, rules as rules_file, units
 from shingi.envelope import OperationError
 
 
 def version(inp, config):
+    inputs.check("version", inp)
     return {"version": package_version("shingi")}, []
 
 
 def kinds(inp, config):
+    inputs.check("kinds", inp)
     rules = rules_file.load(config)
     return {
         "kinds": [
@@ -28,6 +30,7 @@ def kinds(inp, config):
 
 
 def where(inp, config):
+    inputs.check("where", inp)
     rules = rules_file.load(config)
     return units.read_unit(rules, named_unit(rules, inp))
 
@@ -43,6 +46,7 @@ def named_unit(rules, inp):
 
 
 def context(inp, config):
+    inputs.check("context", inp)
     rules = rules_file.load(config)
     path = named_unit(rules, inp)
     manifest, warnings = units.check_manifest(rules, path)
@@ -90,6 +94,7 @@ def context(inp, config):
 
 
 def list_units(inp, config):
+    inputs.check("list", inp)
     rules = rules_file.load(config)
     root = inp.get("unit")
     if root is not None:
@@ -150,10 +155,12 @@ def orphan_task(rules, task, by_id):
 
 
 def create(inp, config):
+    inputs.check("create", inp)
     return make_unit(inp, config, adopting=False)
 
 
 def adopt(inp, config):
+    inputs.check("adopt", inp)
     return make_unit(inp, config, adopting=True)
 
 

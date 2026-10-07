@@ -115,6 +115,13 @@ check "unknown kind" 1 '.error.details | .kind == "story" and .defined == ["bran
 check "bad name" 1 '.error.kind == "invalid-name"' -- create bad- group
 check "missing parent" 1 '.error.details == {parent: "HOME-9/x", missing: "HOME-9"}' -- create HOME-9/x/y group
 check "missing kind" 2 '.error.kind == "usage"' -- create HOME-3
+check "empty title" 1 '.error.details.problems == [{field: "/title", reason: "must not be empty"}]' -- create HOME-3 group --title ''
+
+echo "== input"
+check "where from stdin" 0 '.result.path == "HOME-1"' -- where -i - <<<'{"unit": "HOME-1"}'
+check "every problem" 1 '[.error.details.problems[].field] == ["/extra", "/path"]' -- create -i - <<<'{"kind": "group", "extra": 1}'
+check "not one object" 1 '.error.details.problems[0].field == ""' -- kinds -i - <<<'{} {}'
+check "input with arguments" 2 '.error.kind == "usage"' -- create HOME-3 group -i - <<<'{}'
 
 echo "== nesting"
 check "child a" 0 '.result.unit | .parent == "HOME-1" and .koan_folder == "/work/HOME-1/a" and .start.readiness == "blocked"' -- create HOME-1/a branch
