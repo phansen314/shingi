@@ -39,7 +39,7 @@ def load(config=None):
         with open(path, "rb") as f:
             data = tomllib.load(f)
     except FileNotFoundError:
-        raise invalid(path, "missing", f"no rules file at {path}; see the design spec's example")
+        raise invalid(path, "missing", f"no rules file at {path}; see \"The rules file\" in shingi's README for an example")
     except tomllib.TOMLDecodeError as exc:
         raise invalid(path, "syntax", f"{path}: {exc}")
 

@@ -50,18 +50,24 @@ def list_units(inp, config):
     by_id = {m["id"]: path for path, m in manifests.items() if m is not None}
 
     folder = rules.koan_root if root is None else units.koan_folder(rules, root)
-    tasks = koan.list_tasks(folder, recursive=True)
+    try:
+        tasks, koan_warnings = koan.list_tasks(folder, recursive=True)
+    except OperationError as error:
+        if error.kind != "koan-failed":
+            raise
+        tasks, koan_warnings = None, units.koan_failed(error, None)
+    warnings += koan_warnings
     found = []
     for path, manifest in manifests.items():
         start = done = None
-        if manifest is not None:
+        if manifest is not None and tasks is not None:
             kfolder = units.koan_folder(rules, path)
             start = units.match(tasks, kfolder, manifest["id"], "shingi-start")
             done = units.match(tasks, kfolder, manifest["id"], "shingi-done")
             warnings += units.missing_tasks(path, start, done)
         found.append(units.build_unit(rules, path, manifest, start, done))
 
-    warnings += [orphan_task(rules, task, by_id) for task in tasks if not claimed(rules, task, by_id)]
+    warnings += [orphan_task(rules, task, by_id) for task in tasks or [] if not claimed(rules, task, by_id)]
     return {"root": root, "units": found}, units.sort_warnings(warnings)
 
 
@@ -128,7 +134,8 @@ def make_unit(inp, config, adopting):
             reason = "unsupported-manifest"
         else:
             reason = "missing-task"
-            parent_start, parent_done = units.find_tasks(rules, parent, parent_manifest["id"])
+            parent_start, parent_done, koan_warnings = units.find_tasks(rules, parent, parent_manifest["id"])
+            warnings += koan_warnings
         for role, task in (("start", parent_start), ("done", parent_done)):
             if task is None:
                 warnings.append(units.warning(
@@ -139,7 +146,7 @@ def make_unit(inp, config, adopting):
                 ))
 
     unit_id = str(uuid.uuid4())
-    made = koan.create_batch({
+    made, koan_warnings = koan.create_batch({
         "folder": units.koan_folder(rules, path),
         "tasks": [
             {
@@ -167,7 +174,9 @@ def make_unit(inp, config, adopting):
             {"parent": parent},
         ))
     elif parent_done:
-        koan.block(parent_done["id"], [made["refs"]["done"]])
+        _, block_warnings = koan.block(parent_done["id"], [made["refs"]["done"]])
+        koan_warnings += block_warnings
+    warnings += koan_warnings
 
     if not adopting:
         try:

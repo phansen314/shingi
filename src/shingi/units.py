@@ -203,10 +203,16 @@ def state(start, done):
 
 
 def find_tasks(rules, path, unit_id):
-    """The unit's start and done tasks, as koan reports them, each None when not found."""
+    """The unit's start and done tasks, as koan reports them, each None when not found, and koan's
+    warnings. Raises koan-failed."""
     kfolder = koan_folder(rules, path)
-    tasks = koan.list_tasks(kfolder, recursive=False)
-    return match(tasks, kfolder, unit_id, "shingi-start"), match(tasks, kfolder, unit_id, "shingi-done")
+    tasks, warnings = koan.list_tasks(kfolder, recursive=False)
+    return match(tasks, kfolder, unit_id, "shingi-start"), match(tasks, kfolder, unit_id, "shingi-done"), warnings
+
+
+def koan_failed(error, unit):
+    """The koan-failed warning for a read that koan failed: every task it would have found is null."""
+    return [warning("koan-failed", error.message, unit, details=error.details)] + error.warnings
 
 
 def sort_warnings(warnings):
@@ -230,9 +236,15 @@ def read_unit(rules, path):
     manifest, warnings = check_manifest(rules, path)
     start = done = None
     if manifest is not None:
-        start, done = find_tasks(rules, path, manifest["id"])
-        warnings += missing_tasks(path, start, done)
-    return build_unit(rules, path, manifest, start, done), warnings
+        try:
+            start, done, koan_warnings = find_tasks(rules, path, manifest["id"])
+        except OperationError as error:
+            if error.kind != "koan-failed":
+                raise
+            warnings += koan_failed(error, path)
+        else:
+            warnings += missing_tasks(path, start, done) + koan_warnings
+    return build_unit(rules, path, manifest, start, done), sort_warnings(warnings)
 
 
 def missing_tasks(path, start, done):

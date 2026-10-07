@@ -203,6 +203,15 @@ check "a copied unit has no tasks of its own" 0 '.result | .start == null and .d
 check "warned per role" 0 '[.warnings[] | .kind, .details.role] == ["missing-task", "start", "missing-task", "done"]' -- where HOME-1/copy
 rm -rf "$HOME/work/HOME-1/copy"
 
+echo "== koan failing"
+mkdir -p "$tmp/badbin"
+printf '#!/bin/sh\nexit 5\n' >"$tmp/badbin/koan" && chmod +x "$tmp/badbin/koan"
+PATH=$tmp/badbin:$PATH check "where still reports the unit" 0 '.result | .path == "HOME-1/a" and .start == null and .state == null' -- where HOME-1/a
+PATH=$tmp/badbin:$PATH check "with koan-failed" 0 '.warnings == [{kind: "koan-failed", message: .warnings[0].message, unit: "HOME-1/a", ids: [], details: {call: "list", exit: 5, error: null}}]' -- where HOME-1/a
+PATH=$tmp/badbin:$PATH check "list: one koan-failed, no orphans" 0 '[.warnings[].kind] == ["koan-failed"] and all(.result.units[]; .state == null)' -- list HOME-1
+PATH=$tmp/badbin:$PATH check "create: an error, nothing made" 1 '.error.kind == "koan-failed" and (.error | has("partial") | not)' -- create HOME-1/c group
+expect "nothing made" '[[ ! -e $HOME/work/HOME-1/c ]]'
+
 echo "== finishing"
 koan done "$(jq .result.start.id <<<"$("$SHINGI" where HOME-1/a)")"
 koan done "$a_done"

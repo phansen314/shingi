@@ -4,24 +4,25 @@ import json
 
 
 class OperationError(Exception):
-    """An error an operation reports in the envelope."""
+    """An error an operation reports in the envelope, with the warnings gathered before it."""
 
-    def __init__(self, kind, message, details=None):
+    def __init__(self, kind, message, details=None, warnings=()):
         super().__init__(message)
         self.kind = kind
         self.message = message
         self.details = details if details is not None else {}
+        self.warnings = list(warnings)
 
 
 def success(result, warnings=()):
     return {"ok": True, "result": result, "warnings": list(warnings)}
 
 
-def failure(error, warnings=()):
+def failure(error):
     return {
         "ok": False,
         "error": {"kind": error.kind, "message": error.message, "details": error.details},
-        "warnings": list(warnings),
+        "warnings": error.warnings,
     }
 
 
