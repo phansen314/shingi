@@ -92,6 +92,15 @@ def orphan_task(rules, task, by_id):
 
 
 def create(inp, config):
+    return make_unit(inp, config, adopting=False)
+
+
+def adopt(inp, config):
+    return make_unit(inp, config, adopting=True)
+
+
+def make_unit(inp, config, adopting):
+    """create, or with `adopting`, adopt: they differ only in the working folder."""
     rules = rules_file.load(config)
     path, kind = inp["path"], inp["kind"]
     units.check_path(path)
@@ -111,8 +120,7 @@ def create(inp, config):
                 {"parent": parent, "missing": error.details["missing"]},
             )
     folder = units.working_folder(rules, path)
-    if (folder / units.MANIFEST).exists():
-        raise OperationError("unit-exists", f"{path} already exists", {"manifest": str(folder / units.MANIFEST)})
+    check_entry(folder, path, adopting)
     warnings = []
     if parent is not None:
         parent_manifest, _ = units.check_manifest(rules, parent)
@@ -161,7 +169,11 @@ def create(inp, config):
     elif parent_done:
         koan.block(parent_done["id"], [made["refs"]["done"]])
 
-    folder.mkdir(exist_ok=True)
+    if not adopting:
+        try:
+            folder.mkdir()
+        except FileExistsError:
+            raise name_taken(path, folder.name, "folder")
     title = inp.get("title") or path.rpartition("/")[2]
     try:
         with open(folder / units.NOTES, "x", encoding="utf-8") as f:
@@ -171,6 +183,35 @@ def create(inp, config):
     write_manifest(folder, {"schema": 1, "id": unit_id, "kind": kind})
     unit, read_warnings = units.read_unit(rules, path)
     return {"unit": unit}, units.sort_warnings(warnings + read_warnings)
+
+
+def check_entry(folder, path, adopting):
+    """Check what is at the new unit's name in its parent's folder (operations.md, create step 1.4)."""
+    name = folder.name
+    if (folder / units.MANIFEST).is_file():
+        raise OperationError("unit-exists", f"{path} already exists", {"manifest": str(folder / units.MANIFEST)})
+    for entry in sorted(folder.parent.iterdir(), key=lambda e: e.name.encode()):
+        if entry.name.encode().lower() != name.encode().lower():  # ASCII case only
+            continue
+        # Only adopt may find something at the name: a folder with exactly it.
+        if entry.name != name or not adopting or not entry.is_dir():
+            raise name_taken(path, entry.name, entry_type(entry))
+    if adopting and not folder.is_dir():
+        raise OperationError(
+            "not-found",
+            f"there is no folder {path} to adopt",
+            {"unit": path, "missing": path, "cwd": None, "reason": "no-folder"},
+        )
+
+
+def entry_type(entry):
+    if not entry.is_dir():
+        return "file"
+    return "unit" if (entry / units.MANIFEST).is_file() else "folder"
+
+
+def name_taken(path, entry, kind):
+    return OperationError("name-taken", f"{entry} is in the way of {path}", {"entry": entry, "type": kind})
 
 
 def write_manifest(folder, manifest):

@@ -179,6 +179,20 @@ koan done "$d4_done"
 check "a late child warns parent-done" 0 '.warnings == [{kind: "parent-done", message: .warnings[0].message, unit: "HOME-4/late", ids: ['"$d4_done"'], details: {parent: "HOME-4"}}]' -- create HOME-4/late group
 expect "the parent's done task is left alone" '[[ $("$KOAN" show '"$d4_done"' | jq -c .result.tasks[0].blocked_by) == "[$d4_start]" ]]'
 
+echo "== adopting a folder"
+mkdir -p "$HOME/work/HOME-5/drafts"
+echo 'the plan' >"$HOME/work/HOME-5/drafts/plan.txt"
+printf '# What I had\n\nnotes\n' >"$HOME/work/HOME-5/uow.md"
+check "create refuses an existing folder" 1 '.error.details == {entry: "HOME-5", type: "folder"}' -- create HOME-5 group
+check "adopt keeps its notes, quietly" 0 '.result.unit | .title == "What I had" and .state == "not-started"' -- adopt HOME-5 group --title 'Ignored'
+check "no warnings" 0 '.warnings == []' -- where HOME-5
+expect "contents untouched" '[[ $(cat "$HOME/work/HOME-5/drafts/plan.txt") == "the plan" && $(head -1 "$HOME/work/HOME-5/uow.md") == "# What I had" ]]'
+mkdir "$HOME/work/HOME-5/spike"
+check "a child folder without notes gets a title" 0 '.result.unit | .title == "foo: spike" and .parent == "HOME-5"' -- adopt HOME-5/spike branch --title 'foo: spike'
+check "adopt again: unit-exists" 1 '.error.kind == "unit-exists"' -- adopt HOME-5 group
+check "adopt a missing folder" 1 '.error.details.reason == "no-folder"' -- adopt HOME-6 group
+check "adopt in another case" 1 '.error.details == {entry: "HOME-5", type: "unit"}' -- adopt home-5 group
+
 echo "== missing tasks"
 cp -r "$HOME/work/HOME-1/a" "$HOME/work/HOME-1/copy"
 check "a copied unit has no tasks of its own" 0 '.result | .start == null and .done == null and .state == null' -- where HOME-1/copy

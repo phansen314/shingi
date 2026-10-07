@@ -18,6 +18,7 @@ COMMANDS = {
     "where": (operations.where, ["unit?"], {}),
     "list": (operations.list_units, ["unit?"], {}),
     "create": (operations.create, ["path", "kind"], {"--title": "title"}),
+    "adopt": (operations.adopt, ["path", "kind"], {"--title": "title"}),
 }
 
 
