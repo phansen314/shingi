@@ -168,7 +168,7 @@ def make_unit(inp, config, adopting):
     """create, or with `adopting`, adopt: they differ only in the working folder."""
     rules = rules_file.load(config)
     path, kind = inp["path"], inp["kind"]
-    units.check_path(path)
+    units.check_path(path, creating=True)
     if kind not in rules.kinds:
         raise OperationError(
             "unknown-kind", f"kind {kind!r} is not defined", {"kind": kind, "defined": sorted(rules.kinds)}

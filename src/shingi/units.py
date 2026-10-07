@@ -9,7 +9,6 @@ from shingi import koan
 from shingi.envelope import OperationError
 
 NAME = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}[A-Za-z0-9])?"
-UNIT_PATH = re.compile(rf"{NAME}(?:/{NAME})*")
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 MANIFEST = "uow.json"
 NOTES = "uow.md"
@@ -28,9 +27,36 @@ def warning(kind, message, unit, ids=(), details=None):
     return {"kind": kind, "message": message, "unit": unit, "ids": list(ids), "details": details or {}}
 
 
-def check_path(path):
-    if not UNIT_PATH.fullmatch(path):
-        raise OperationError("invalid-name", f"invalid unit path {path!r}", {"path": path})
+MAX_PATH = 193  # so a start task's title, "Start: <path>", fits koan's 200
+
+
+def check_path(path, creating=False):
+    """Raise invalid-name, naming the first bad segment, unless `path` is a unit path; and when
+    `creating`, unless it is at most MAX_PATH characters."""
+    for index, segment in enumerate(path.split("/")):
+        reason = segment_problem(segment)
+        if reason is not None:
+            raise OperationError("invalid-name", f"invalid unit path {path!r}: segment {index} is {reason}", {
+                "path": path, "index": index, "segment": segment, "reason": reason,
+            })
+    if creating and len(path) > MAX_PATH:
+        raise OperationError(
+            "invalid-name",
+            f"{path!r} is over {MAX_PATH} characters",
+            {"path": path, "index": None, "segment": None, "reason": "path-length"},
+        )
+
+
+def segment_problem(segment):
+    if segment == "":
+        return "empty"
+    if not re.fullmatch(r"[A-Za-z0-9-]+", segment):
+        return "characters"
+    if len(segment) > 64:
+        return "length"
+    if segment.startswith("-") or segment.endswith("-"):
+        return "hyphen"
+    return None
 
 
 def resolve(rules, path):
