@@ -12,12 +12,17 @@ EXIT_ERROR = 1
 EXIT_USAGE = 2
 
 # Each command: its operation, its positional arguments' fields, and its options' fields.
+# A field ending in "@file" is read from the file the option names ("-" is stdin).
 COMMANDS = {
     "version": (operations.version, [], {}),
     "kinds": (operations.kinds, [], {}),
     "where": (operations.where, ["unit?"], {}),
     "list": (operations.list_units, ["unit?"], {}),
-    "create": (operations.create, ["path", "kind"], {"--title": "title"}),
+    "create": (
+        operations.create,
+        ["path", "kind"],
+        {"--title": "title", "--notes": "notes", "--notes-file": "notes@file"},
+    ),
     "adopt": (operations.adopt, ["path", "kind"], {"--title": "title"}),
 }
 
@@ -38,7 +43,7 @@ def parse(argv):
         raise usage_error(f"unknown command {command!r}", command)
     operation, positional, options = COMMANDS[command]
     options = {**options, "--config": None}
-    inp, config, args = {}, None, []
+    inp, config, args, files, set_by = {}, None, [], {}, {}
     tokens = iter(rest)
     for token in tokens:
         name, eq, value = token.partition("=")
@@ -47,10 +52,17 @@ def parse(argv):
                 value = next(tokens, None)
                 if value is None:
                     raise usage_error(f"{name} needs a value", token)
-            if options[name] is None:
+            field = options[name]
+            if field is None:
                 config = value
+                continue
+            field, _, source = field.partition("@")
+            if set_by.setdefault(field, name) != name:
+                raise usage_error(f"{set_by[field]} and {name} can't be given together", token)
+            if source == "file":
+                files[field] = value
             else:
-                inp[options[name]] = value
+                inp[field] = value
         elif token.startswith("-") and token != "-":
             raise usage_error(f"unknown option {token!r}", token)
         else:
@@ -61,9 +73,31 @@ def parse(argv):
     if len(args) < len(required):
         raise usage_error(f"missing <{required[len(args)]}>")
     inp.update(zip((name.rstrip("?") for name in positional), args))
+    for field, file in files.items():
+        inp[field] = read_text(file, field)
     if command == "where" and "unit" not in inp:
         inp["cwd"] = current_directory()
     return operation, inp, config
+
+
+def read_text(file, field):
+    """The contents of `file` ("-" is stdin), exactly, as UTF-8."""
+    try:
+        if file == "-":
+            data = sys.stdin.buffer.read()
+        else:
+            with open(file, "rb") as f:
+                data = f.read()
+    except OSError as exc:
+        raise OperationError("io", f"{file}: {exc.strerror}", {
+            "path": os.path.abspath(file), "code": errno.errorcode.get(exc.errno),
+        })
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise OperationError("invalid-input", f"{file} is not valid UTF-8", {
+            "problems": [{"field": f"/{field}", "reason": "not valid UTF-8"}],
+        })
 
 
 def current_directory():

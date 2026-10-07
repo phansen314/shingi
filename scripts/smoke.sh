@@ -106,6 +106,10 @@ check "where reports what create did" 0 '.result | .start.id == '"$p_start"' and
 expect "manifest and notes on disk" '[[ -f $HOME/work/HOME-1/uow.json && $(cat "$HOME/work/HOME-1/uow.md") == "# Payment retries" ]]'
 expect "nothing hidden left behind" '[[ -z $(ls -A "$HOME/work/HOME-1" | grep "^\.") ]]'
 check "title defaults to the name" 0 '.result.unit.title == "HOME-2"' -- create HOME-2 group
+check "notes from stdin" 0 '.ok' -- create HOME-3 group --title 'Notes' --notes-file - <<<'Story: retry failed payments.'
+expect "notes below the title" '[[ $(cat "$HOME/work/HOME-3/uow.md") == $'"'"'# Notes\n\nStory: retry failed payments.'"'"' ]]'
+koan delete-folder -r /work/HOME-3 && rm -rf "$HOME/work/HOME-3"  # out of the way of list's checks
+check "--notes with --notes-file" 2 '.error.kind == "usage"' -- create HOME-7 group --notes a --notes-file -
 check "again: unit-exists" 1 '.error.kind == "unit-exists"' -- create HOME-1 group
 check "unknown kind" 1 '.error.details | .kind == "story" and .defined == ["branch", "group"]' -- create HOME-3 story
 check "bad name" 1 '.error.kind == "invalid-name"' -- create bad- group

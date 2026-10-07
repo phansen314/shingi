@@ -177,12 +177,20 @@ def make_unit(inp, config, adopting):
     title = inp.get("title") or path.rpartition("/")[2]
     try:
         with open(folder / units.NOTES, "x", encoding="utf-8") as f:
-            f.write(f"# {title}\n")
+            f.write(notes_text(title, inp.get("notes", "")))
     except FileExistsError:
         pass
     write_manifest(folder, {"schema": 1, "id": unit_id, "kind": kind})
     unit, read_warnings = units.read_unit(rules, path)
     return {"unit": unit}, units.sort_warnings(warnings + read_warnings)
+
+
+def notes_text(title, notes):
+    """uow.md as create writes it: the title, then, after a blank line, the notes, ending in a newline."""
+    text = f"# {title}\n"
+    if notes:
+        text += "\n" + notes + ("" if notes.endswith("\n") else "\n")
+    return text
 
 
 def check_entry(folder, path, adopting):

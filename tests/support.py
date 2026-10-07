@@ -35,10 +35,11 @@ class ShingiTestCase(unittest.TestCase):
         self.env = {**os.environ, "XDG_CONFIG_HOME": str(tmp / "config")}
         self.koan("init", str(tmp / "tree"))
 
-    def shingi(self, *args, cwd=None):
+    def shingi(self, *args, cwd=None, stdin=b""):
         """Run shingi; return its exit status and envelope."""
         proc = subprocess.run(
-            [shutil.which("shingi"), *args, "--config", str(self.config)], env=self.env, capture_output=True, cwd=cwd
+            [shutil.which("shingi"), *args, "--config", str(self.config)],
+            env=self.env, capture_output=True, cwd=cwd, input=stdin,
         )
         return proc.returncode, json.loads(proc.stdout)
 
