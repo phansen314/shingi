@@ -36,7 +36,7 @@ Two boundaries keep the blocks apart:
 - **Tracking progress or completion.** A unit stores no status; its state is derived from its start and done tasks in koan (see [Start and done tasks](#start-and-done-tasks)).
 - **Setting up the work.** shingi runs no git and knows no repository. Which repository a unit works in, what its branch is called, and where its worktree is are decided by the unit's setup tasks, which shingi doesn't make, and recorded in its notes.
 - **Running sessions.** sesshin starts and watches them, and ino or you name them; shingi only says where a unit's folders are.
-- **Moving, renaming, or deleting units.** By hand for now; see [Moving and removing units](#moving-and-removing-units).
+- **Moving or renaming units, or deleting a unit's files.** [`delete`](#delete) makes a unit a plain folder again, and leaves the folder. Moving is by hand for now; see [Moving units](#moving-units).
 - **Knowing what a name means.** A name is only a name: a Jira key, a ticket number, or a slug are all the same to shingi, which infers nothing from one. What a name refers to comes from outside shingi.
 - **Talking to Jira or any other tracker.**
 - **More than one user, more than one machine, or more than one tree.** Each machine has one tree, at one fixed place (see [Locations](#locations)). Work and home are separate machines, with separate trees.
@@ -235,7 +235,7 @@ A unit is *named* by its path and *identified* by its `id`.
 - **People and tools name a unit by its path.** It is unique, since the filesystem allows one folder per name, and readable: `HOME-12345/foo-split/1-schema` says what it is. Every command takes a path, and ino, later, would hand units out by it.
 - **Start and done tasks are tied to a unit by its `id`,** not its path (see [Start and done tasks](#start-and-done-tasks)). The koan folder is where they are looked for; the `id` is how they are recognized there.
 - **The `id` is random, not counted.** `create` makes a fresh UUID, so there is no counter, no lock, and no state outside the units themselves.
-- **Moving a unit keeps its identity.** Its path changes and its `id` doesn't; moved together with its koan folder, its tasks still match it. Moving is [by hand](#moving-and-removing-units) for now.
+- **Moving a unit keeps its identity.** Its path changes and its `id` doesn't; moved together with its koan folder, its tasks still match it. Moving is [by hand](#moving-units) for now.
 - **Copying is not how a unit is made: `create` is.** A copied folder carries its original's `id` but has no tasks in its own koan folder, so it is told as [`missing-task`](#problems).
 
 ## Start and done tasks
@@ -252,7 +252,7 @@ and the new done task is added to the blockers of the parent's done task, so a p
 - **Found by the unit's `id`, never stored.** Every task shingi makes is tagged `shingi`, so one `koan list` narrowed to that tag finds them all, and, as long as nothing else is tagged `shingi`, nothing else. Among them, `extra.source` says the role and `extra.shingi-unit` the unit: a unit's start task is the one in its koan folder whose `source` is `shingi-start` and whose `shingi-unit` is the unit's `id`; its done task, the one whose `source` is `shingi-done`. The manifest records no task IDs.
 - **Tagged by role, for the frontier.** koan's `frontier` filters by tag, never by `extra`, so each task also carries its role as a tag: `koan frontier --tags-all shingi-start` is every unit ready to begin, and `--tags-all shingi-done` every unit ready to close. shingi reads only `extra`; the role tags are for people and agents.
 - **Looked for in the unit's koan folder, and only there.** Every read of tasks is one `koan list`, done tasks included, of the tasks tagged `shingi` (or, for `context`, of every task): `where` reads the unit's koan folder alone, and `list` the koan folder it starts from and everything under it (the koan root, with no argument). `context` reads the unit's koan folder alone too. `create` makes two such reads, each as `where` does: the parent's koan folder before it makes anything, and the new unit's to report it. A task matches a unit only when it carries the unit's `id` *and* sits in the unit's koan folder, so `where` and `list` always agree. A task carrying a unit's `id` in any other folder matches nothing: `list` warns it as [`orphan-task`](#problems). A koan folder that doesn't exist yet, such as the koan root before the first `create`, holds no tasks.
-- **Titles are for people.** shingi writes them, and never reads them: renaming one changes nothing. A title names the unit's path, the one thing in it that can go stale: a unit moved by hand keeps its old titles until its tasks are retitled, as [moving](#moving-and-removing-units) says, and `shingi move` would retitle them itself.
+- **Titles are for people.** shingi writes them, and never reads them: renaming one changes nothing. A title names the unit's path, the one thing in it that can go stale: a unit moved by hand keeps its old titles until its tasks are retitled, as [moving](#moving-units) says, and `shingi move` would retitle them itself.
 - **Times are koan's.** A unit was created at its start task's `created_at`, started at its start task's `completed_at`, and done at its done task's `completed_at`.
 - **The start task is the unit's gate.** Every other task in a unit waits on it, so a unit's tasks stay off the frontier until someone decides to begin it: a stack's next piece, or work specified now for later, waits there unseen. Whoever begins a unit marks its start task done first; whoever finishes it marks its done task. Done covers cancelled; a reason goes in the task's notes.
 - **Closing a parent is the coordinator's job.** A parent's done task becomes ready once its last child's done task is done, and shingi closes nothing: whoever coordinates the parent — a person, a coordinator session, later ino — marks it, finding it with `koan frontier --tags-all shingi-done`. In a deep tree that is one close per level, by design: a group done is a decision, not a side effect.
@@ -365,6 +365,19 @@ Everything said of `create` holds for `adopt`, but for the working folder:
 - **Its `uow.md` is kept,** untouched, when it has one, and the result's `title` is what it says. Only when it has none does `adopt` write one, from `--title` or the unit's name. There is no `--notes`: notes for existing work belong in the folder already.
 - **`partial`'s `files`** can only list `uow.md`, since `adopt` never makes the folder.
 
+### delete
+
+`shingi delete <unit>`, or `shingi delete -i <file>` with `{ "unit" }` — make a unit a plain folder again. The inverse of `adopt`, and the undo for a `create` made by mistake: a mistyped name, the wrong parent, the wrong kind. `result` is `{ "path", "koan_folder", "working_folder", "tasks", "unblocked" }`: the tasks removed, and the tasks elsewhere that no longer wait on them.
+
+- **It removes the unit's koan folder and every task in it,** the start and done tasks and any others, with their notes. koan takes them out of every `blocked_by`, so the parent's done task no longer waits on the unit. This is the one loss in it: koan keeps no trash.
+- **It removes the manifest, and no other file.** The working folder, its `uow.md`, and all its working material stay, as a plain folder: shingi never deletes what you wrote. Removing the folder too is one `rm -r`; undoing what the unit's setup made, such as a worktree and branch, is done the way it was made.
+- **It refuses a unit with child units** ([`has-children`](#problems)): delete the leaves first. One mistyped path never takes out a subtree.
+- **The path is always given.** There is no deleting the unit the current directory is in.
+- **It is not for work that was cancelled or finished.** That unit keeps its history: mark its done task done, with the reason in the task's notes. `delete` is for a unit that should never have been.
+- **Safe to run again.** The tasks go first and the manifest last, so a `delete` that fails part-way leaves a unit that `list` still reports, and a second `delete` finishes.
+
+Corrected and made again: `delete`, then `adopt` the same folder with the right kind, keeps the notes; `delete`, `mv` the folder, then `adopt` it at the new path moves a unit that has no children.
+
 ### kinds
 
 `shingi kinds` — every kind the rules define, for a front end — a Claude command, an OpenCode command, a pi tool — to offer the right kinds without knowing them itself. `result` is `{ "kinds": [ { "name", "description", "suggests" } ] }`, in name order; `description` is `""` when the rules give none.
@@ -375,7 +388,7 @@ Everything said of `create` holds for `adopt`, but for the working folder:
 
 ## Problems
 
-Every problem shingi reports, by name. An error means the command changed nothing, except a `create` or `adopt` that failed part-way, whose error lists what it made in `partial` (see [create](#create)); a warning is told, never guessed past, and fixed by a person or an agent. `create` and `adopt` also pass on whatever warnings reading the new unit back gives. Each kind's `details` are in operations.md's [Error kinds](operations.md#error-kinds) and [Warning kinds](operations.md#warning-kinds).
+Every problem shingi reports, by name. An error means the command changed nothing, except a `create` or `adopt` that failed part-way, whose error lists what it made in `partial` (see [create](#create)), and a `delete` that failed after removing the tasks, which is run again; a warning is told, never guessed past, and fixed by a person or an agent. `create` and `adopt` also pass on whatever warnings reading the new unit back gives. Each kind's `details` are in operations.md's [Error kinds](operations.md#error-kinds) and [Warning kinds](operations.md#warning-kinds).
 
 ### Errors
 
@@ -385,13 +398,14 @@ Every problem shingi reports, by name. An error means the command changed nothin
 | `invalid-input` | all | The input is the wrong shape: `create -i` JSON that isn't an object of the right fields, or a `--title` that is empty or holds a line break. |
 | `invalid-rules` | all but `version` | The rules file is there and unreadable, or breaks [Fields](#fields); or the file `--config` names is missing. No rules file at the usual location is not an error: the built-in kinds apply. |
 | `unsupported-format` | all but `version` | The rules file's `schema` is one shingi doesn't support. |
-| `not-found` | `where`, `context`, `list`, `adopt` | The path named is not a unit: a folder on it doesn't exist, matches only ignoring case, or holds no `uow.json`. Names the first folder on the path that isn't a unit, so a unit cut off by an ancestor's missing manifest says which. From `where` or `context` with no unit, the current directory is in no unit, or outside the working root. From `adopt`, the folder to adopt doesn't exist. |
-| `invalid-name` | `where`, `context`, `list`, `create`, `adopt` | A segment of the path breaks [Names](#names), or, from `create` or `adopt`, the path is over 193 characters. Checked before the path is looked up, so no path reaches outside the working root. |
+| `not-found` | `where`, `context`, `list`, `adopt`, `delete` | The path named is not a unit: a folder on it doesn't exist, matches only ignoring case, or holds no `uow.json`. Names the first folder on the path that isn't a unit, so a unit cut off by an ancestor's missing manifest says which. From `where` or `context` with no unit, the current directory is in no unit, or outside the working root. From `adopt`, the folder to adopt doesn't exist. |
+| `invalid-name` | `where`, `context`, `list`, `create`, `adopt`, `delete` | A segment of the path breaks [Names](#names), or, from `create` or `adopt`, the path is over 193 characters. Checked before the path is looked up, so no path reaches outside the working root. |
 | `parent-not-found` | `create`, `adopt` | The path has more than one segment, and its parent is not a unit. |
 | `name-taken` | `create`, `adopt` | An entry in the parent's folder — a unit, a plain folder, or a file — has the new name in another case; or, from `create`, a plain folder or a file has it exactly; or, from `adopt`, a file has it exactly. |
 | `unknown-kind` | `create`, `adopt` | The kind is not defined in the rules. |
 | `unit-exists` | `create`, `adopt` | The unit's `uow.json` already exists. Found by the check, or, in a race, by the manifest's exclusive create (see [Concurrency](#concurrency)). |
-| `koan-failed` | `create`, `adopt` | koan could not be run, or returned an error; koan's envelope is in `details`, and what was made in `partial`. Undo what `partial` lists, then run the command again. When koan couldn't report, its outcome is unknown: run `list` for `orphan-task`s before running `create` again. |
+| `has-children` | `delete` | The unit has child units. Delete those first. |
+| `koan-failed` | `create`, `adopt`, `delete` | koan could not be run, or returned an error; koan's envelope is in `details`. From `create` or `adopt`, what was made is in `partial`: undo what it lists, then run the command again; when koan couldn't report, its outcome is unknown, so run `list` for `orphan-task`s before running `create` again. From `delete`, run it again. |
 | `io` | all | The filesystem refused: permission denied, disk full, and the like. From `version`, only when `-i`'s file can't be read. From `create` or `adopt`, with `partial` when it had made something and the unit doesn't exist yet. |
 | `internal` | all | A bug: an unexpected exception, still reported as an envelope; from `create` or `adopt`, with `partial` when it had made something and the unit doesn't exist yet. |
 
@@ -423,7 +437,7 @@ A story with seven branches in `foo` and one in `bar` is one `create … group` 
 
 ### Claude Code
 
-A Claude Code plugin, served from this repository as koan's and sesshin's are, carrying one skill and no hooks. The skill teaches the hierarchy and the kinds; to ask `shingi where` instead of composing a path; the [front-end](#front-ends) steps for creating units; how to do a setup task and where in `uow.md` to record what it decided, so every unit's notes say where its code is in the same form; how to clean up after a `create` that failed, by undoing what its `partial` lists, or after an `orphan-task` warning; and how to coordinate:
+A Claude Code plugin, served from this repository as koan's and sesshin's are, carrying one skill and no hooks. The skill teaches the hierarchy and the kinds; to ask `shingi where` instead of composing a path; the [front-end](#front-ends) steps for creating units; how to do a setup task and where in `uow.md` to record what it decided, so every unit's notes say where its code is in the same form; how to clean up after a `create` that failed, by undoing what its `partial` lists, or after an `orphan-task` warning; when to `delete` a unit, one made by mistake, and when to finish it instead, and to ask before deleting; and how to coordinate:
 
 - **A coordinator** starts in a parent unit's working folder and runs `shingi list <unit>` for its picture of the work: each unit's koan folder, and its notes for the worktree to start a session in. Its decisions are the shingi tasks on the frontier: `koan frontier --folder <koan folder> --tags-all shingi` is every unit under it ready to begin or to close; closing a parent whose children are all done is its job. The session's job is the coordinator's to choose.
 - **A worker** is spawned with `run shingi context <its unit>` in its first prompt, since it starts in a worktree whose `CLAUDE.md` is the repository's, not the unit's, and where `shingi` can't find its unit from the current directory. Its next task is `koan frontier --folder <its koan folder> --recursive=false`: its own unit's, never a child's. When that is its unit's start task, the unit hasn't been begun, and the worker stops and says so rather than marking it. It marks no task tagged `shingi` but its own unit's done task, and that only when it was asked to finish the unit.
@@ -436,7 +450,7 @@ The same skill, linked into OpenCode's skills directory as koan's is, and the sa
 
 ## Concurrency
 
-`create` and `adopt` are the only writers of manifests, and take no lock; koan serializes its own writes. Two `create`s of different paths never touch the same file. Two `create`s of the same path are in no workflow; if they happen, both make tasks, the manifest's exclusive create lets only one write it, and the other fails with `unit-exists`, its `partial` listing the tasks to delete.
+`create` and `adopt` are the only writers of manifests, and `delete` the only remover; none takes a lock, and koan serializes its own writes. A `delete` racing a `create` beneath the same unit is in no workflow. Two `create`s of different paths never touch the same file. Two `create`s of the same path are in no workflow; if they happen, both make tasks, the manifest's exclusive create lets only one write it, and the other fails with `unit-exists`, its `partial` listing the tasks to delete.
 
 ## Format versions
 
@@ -477,13 +491,13 @@ A command a kind names in `shingi.toml`, as Claude Code names its hooks, that `c
 - **A worktree is outside the working root,** so there is nothing to resolve from. Whoever makes the worktree — a hook, or an agent doing a setup task much later — registers it: `shingi bind <unit> [<dir>]` writes the unit's `id` to a file named `shingi-unit` in that checkout's own git directory (the one its `.git` file points to), and `where` with no argument reads it from there. Inside the git directory, the file can never be committed, shows in no `git status`, and is removed with the worktree. shingi reads the `.git` file to find it, and still runs no git.
 - **Timing follows the work.** A unit whose tasks were specified now and done later has no worktree to be in until its setup runs; binding is part of that setup, so the marker appears exactly when there is a directory to resolve from.
 
-#### Moving and removing units
+#### Moving units
 
-`shingi move`, which moves a unit's koan folder and working folder together, and `shingi remove`, which removes both. Until then, by hand. To move, `koan move-folder` the unit's koan folder, `mv` its working folder to the same new path, and `koan update --title` the start and done tasks of it and every unit beneath it to their new paths. To remove, `koan delete-folder -r` on the unit's koan folder, which also takes its tasks out of every `blocked_by` outside it, so its parent's done task is no longer waiting on it; then remove its working folder; then undo whatever its setup made, such as a worktree and branch, the way it was made.
+`shingi move`, which moves a unit's koan folder and working folder together. Until then, by hand. To move, `koan move-folder` the unit's koan folder, `mv` its working folder to the same new path, and `koan update --title` the start and done tasks of it and every unit beneath it to their new paths. A unit with no children is also moved by [`delete`](#delete), `mv`, and [`adopt`](#adopt), at the cost of its tasks.
 
 #### Changing a unit's kind
 
-`shingi retype <unit> <kind>`, for a label that was wrong from the start. It would be the first command to rewrite a manifest; until then, a corrected kind is an outside change.
+`shingi retype <unit> <kind>`, for a label that was wrong from the start. It would be the first command to rewrite a manifest. Until then, [`delete`](#delete) and [`adopt`](#adopt) again with the right kind, which keeps the notes and loses the tasks.
 
 #### Machine-readable facts
 

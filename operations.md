@@ -2,7 +2,7 @@
 
 An operation is a single query of, or change to, what the [design spec](design-spec.md) defines. Operations are the domain layer, small and orthogonal. They are not CLI commands, though each command runs exactly one: [cli-spec.md](cli-spec.md) gives each command's arguments and maps them onto the input fields here.
 
-The operations are the four that read the tree, [`where`](#where), [`context`](#context), [`list`](#list), and [`kinds`](#kinds); [`version`](#version); and the two that change anything, [`create`](#create) and [`adopt`](#adopt).
+The operations are the four that read the tree, [`where`](#where), [`context`](#context), [`list`](#list), and [`kinds`](#kinds); [`version`](#version); and the three that change anything, [`create`](#create), [`adopt`](#adopt), and [`delete`](#delete).
 
 Terms follow the design spec's [Terms](design-spec.md#terms).
 
@@ -17,7 +17,7 @@ Terms follow the design spec's [Terms](design-spec.md#terms).
 ## Operation kinds
 
 - ***read*** — Changes nothing and takes no lock: [`where`](#where), [`context`](#context), [`list`](#list), [`kinds`](#kinds), and [`version`](#version).
-- ***write*** — Changes koan's tree and the working root: [`create`](#create) and [`adopt`](#adopt). Neither takes a lock of its own; koan serializes its own writes, and the manifest's exclusive create settles a race (see [Concurrency](design-spec.md#concurrency)).
+- ***write*** — Changes koan's tree and the working root: [`create`](#create), [`adopt`](#adopt), and [`delete`](#delete). None takes a lock of its own; koan serializes its own writes, and the manifest's exclusive create settles a race (see [Concurrency](design-spec.md#concurrency)).
 
 ## Operation template
 
@@ -48,7 +48,7 @@ Every operation returns one of two shapes:
 ```
 
 - **`result`** — the operation's output, per its Output schema.
-- **`error`** — why it failed, per the [error schema](#error-schema). An error means the operation changed nothing, except a `create` whose error carries a `partial`.
+- **`error`** — why it failed, per the [error schema](#error-schema). An error means the operation changed nothing, except a `create` or `adopt` whose error carries a `partial`, and a `delete` that failed removing the manifest, whose tasks are gone.
 - **`warnings`** — problems that did not stop it, per the [warning schema](#warning-schema). Present, possibly empty, on success and failure alike.
 
 ```json
@@ -97,7 +97,8 @@ Every operation returns one of two shapes:
 | `name-taken` | An entry in the parent's folder has the new name in another case; or has it exactly and is, for `create`, a plain folder or a file, or, for `adopt`, a file. | `entry`: the entry's name as on disk; `type`: `unit`, `folder`, or `file` (anything not a directory). |
 | `unknown-kind` | `create`'s or `adopt`'s kind is not defined in the rules. | `kind`; `defined`: every defined kind, in name order. |
 | `unit-exists` | The unit's `uow.json` already exists. | `manifest`: its path. |
-| `koan-failed` | koan could not be run, or returned an error (see [Running koan](#running-koan)). | `call`: `list`, `create-batch`, or `block`; `exit`: koan's exit status, or `null` when it couldn't be run; `error`: koan's `error` object, or `null` when koan printed no envelope. |
+| `has-children` | [`delete`](#delete)'s unit has child units. | `unit`: its path; `children`: the child units' paths, in path order. |
+| `koan-failed` | koan could not be run, or returned an error (see [Running koan](#running-koan)). | `call`: `list`, `create-batch`, `block`, or `delete-folder`; `exit`: koan's exit status, or `null` when it couldn't be run; `error`: koan's `error` object, or `null` when koan printed no envelope. |
 | `io` | The filesystem refused: permission denied, disk full, and the like. | `path`; `code`: the symbolic OS error, e.g. `EACCES`, or `null` when it has none. |
 | `internal` | A bug shingi detects: an unexpected exception, still reported as an envelope. | `{}`. |
 
@@ -221,8 +222,8 @@ A path names a unit when, for each prefix of it from the first segment, the fold
 
 shingi runs `koan` from `PATH`, with its operation input as JSON on stdin (`koan <op> -i -`), and reads one koan envelope from its stdout.
 
-- **koan could not be run** — not on `PATH`, killed, an exit status other than `0`, `1`, or `2`, or stdout that is not an envelope — is `koan-failed` with `error` `null`. For a write, `create-batch` or `block`, its outcome is unknown: it may have taken effect.
-- **koan returned an error** is `koan-failed` with its `error`, with one exception: `list`'s `not-found` whose `folders` names the folder it was given means the koan folder doesn't exist yet, as before the first `create`, and is read as no tasks.
+- **koan could not be run** — not on `PATH`, killed, an exit status other than `0`, `1`, or `2`, or stdout that is not an envelope — is `koan-failed` with `error` `null`. For a write, `create-batch`, `block`, or `delete-folder`, its outcome is unknown: it may have taken effect.
+- **koan returned an error** is `koan-failed` with its `error`, with one exception: `list`'s `not-found` whose `folders` names the folder it was given means the koan folder doesn't exist yet, as before the first `create`, and is read as no tasks; and `delete-folder`'s, likewise, means there is nothing to remove.
 - **koan's warnings** are passed on, one `koan-warning` each, whether the call succeeded or not.
 
 ### Finding start and done tasks
@@ -858,3 +859,79 @@ Make an existing folder a unit, leaving everything in it as it was: its start an
 **Partial:** `create-partial`, whose `files` can only list `uow.md`, since `adopt` never makes the folder. Undo it as `create`'s.
 
 **Retry safety:** as `create`'s, except that running it again without undoing a `partial` always makes a second pair of tasks, since the folder is still there to adopt.
+
+### delete
+
+Make a unit a plain folder again: remove its koan folder, with every task in it, then its manifest. Its working folder, its `uow.md`, and everything else in it stay. The inverse of [`adopt`](#adopt), and the undo for a [`create`](#create) made by mistake.
+
+**Kind:** write.
+
+**Input schema:**
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "delete-input",
+  "type": "object",
+  "required": ["unit"],
+  "properties": {
+    "unit": { "type": "string", "description": "The unit's path." }
+  },
+  "additionalProperties": false
+}
+```
+
+**Additional validation:** none.
+
+**Preconditions:** `unit` names a unit with no child units.
+
+**Effects:**
+
+1. **Check,** changing nothing:
+   1. [Read the rules](#reading-the-rules).
+   2. `unit` is a [unit path](#unit-paths) (`invalid-name`) and [resolves](#resolving-a-path) (`not-found`). Its manifest is not read: a unit whose manifest is unusable is deleted like any other.
+   3. No folder directly in its working folder is a unit (`has-children`), as [Walking the tree](#walking-the-tree) finds them.
+2. **Remove the tasks.** Run koan `delete-folder` with `{ "folder": <koan folder>, "recursive": true }`. koan removes the folder, every task in it and under it, whoever made them, and takes those tasks out of every `blocked_by` outside it, so the parent's done task no longer waits on the unit. A koan folder that doesn't exist (koan's `not-found` whose `folders` names it) has nothing to remove, and is not an error. Any other failure is `koan-failed`, and the manifest stays.
+3. **Remove the manifest,** `uow.json`. One already gone is not an error. Nothing else in the working folder is touched: not `uow.md`, not a hidden temp file, not the folder itself.
+
+The manifest goes last, so a `delete` that fails part-way leaves a unit: one [`list`](#list) reports, with `missing-task` when its tasks are gone, and `delete` can be run on again.
+
+**Output schema:**
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "delete-output",
+  "type": "object",
+  "required": ["path", "koan_folder", "working_folder", "tasks", "unblocked"],
+  "properties": {
+    "path": { "$ref": "unit-path", "description": "The unit that was deleted." },
+    "koan_folder": { "type": "string", "description": "Its koan folder, now removed." },
+    "working_folder": { "type": "string", "description": "Its working folder, which stays, now a plain folder." },
+    "tasks": { "type": "array", "items": { "type": "integer" }, "description": "The tasks removed, as koan's deleted reports them, ascending. Empty when the koan folder was already gone." },
+    "unblocked": { "type": "array", "items": { "type": "integer" }, "description": "The tasks outside the koan folder whose blocked_by changed, as koan's dependents reports them, ascending: the parent's done task among them." }
+  },
+  "additionalProperties": false
+}
+```
+
+**Errors,** in this order:
+
+| Kind | When |
+|---|---|
+| `invalid-input` | `unit` missing or not a string, or an unknown field. |
+| `invalid-rules`, `unsupported-format` | The rules file is unusable. |
+| `invalid-name` | `unit` breaks [Names](design-spec.md#names). |
+| `not-found` | `unit` is not a unit. |
+| `has-children` | The unit has child units. |
+| `koan-failed` | koan `delete-folder` failed. When koan's outcome is unknown (`error` `null`), the tasks may be gone; the manifest is not. |
+
+An `io` removing the manifest comes after the tasks are gone.
+
+**Warnings:**
+
+| Kind | When |
+|---|---|
+| `koan-warning` | The koan call warned. |
+
+**Retry safety:** safe, after any error and any unclear outcome: what is already gone is not an error, and running it again removes the rest. After success, running it again is `not-found`: the folder is no longer a unit. [`adopt`](#adopt) makes it one again, with a new `id` and new tasks; the old tasks are not restored.

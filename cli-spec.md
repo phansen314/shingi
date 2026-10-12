@@ -2,7 +2,7 @@
 
 The `shingi` command-line interface: how each command maps to the [operations](operations.md), how input gets in, and what comes out. The CLI adds no behavior of its own beyond parsing arguments, reading `--input` and `--notes-file`, passing `where` the current directory, and passing `--config` on to the rules; everything about the data is specified by the operations and the [design spec](design-spec.md).
 
-The global rules follow koan's CLI spec almost word for word, so one habit covers koan, sesshin, and shingi. Where shingi differs, this document says so: its subject is optional for `where`, `context`, and `list`, `create` and `adopt` take two, and it has a `--config` option.
+The global rules follow koan's CLI spec almost word for word, so one habit covers koan, sesshin, and shingi. Where shingi differs, this document says so: its subject is optional for `where`, `context`, and `list`, `create` and `adopt` take two arguments, and it has a `--config` option.
 
 ## Global behavior
 
@@ -44,7 +44,7 @@ jq -n --arg d "$PWD" '{cwd: $d}' | shingi where -i -
 
 The command line is parsed in the GNU style, with koan's rules:
 
-- **Command names are operation names:** `where`, `context`, `list`, `kinds`, `version`, `create`, `adopt`. There are no aliases.
+- **Command names are operation names:** `where`, `context`, `list`, `kinds`, `version`, `create`, `adopt`, `delete`. There are no aliases.
 - **Option names are field names,** in kebab-case. `--input`, `--notes-file`, `--config`, and `--help` are the exceptions: none sets a field under its own name.
 - **Arguments are for required subjects,** with two departures from koan. `where`, `context`, and `list` take their unit as an optional argument, since a unit is a path and no option could be confused with one; and `create` and `adopt` take two, its path and its kind, in that order. Everything else is an option, so a bare token always has one meaning.
 - **Paths are exact.** A unit path is taken exactly as given: never completed, normalized, case-folded, or derived from the working directory (but see [`where`](#where)). `HOME-12345/` and `/HOME-12345` reach the operation as given, which rejects them as `invalid-name`.
@@ -358,6 +358,36 @@ Make an existing folder a unit, leaving everything in it as it was. Runs [`adopt
 ```sh
 shingi adopt HOME-12345 group                   # ~/shingi-root/HOME-12345 already holds the story's notes
 shingi adopt HOME-12345/spike branch --title 'foo: spike' | jq -r .result.unit.title
+```
+
+### delete
+
+Make a unit a plain folder again: remove its tasks from koan and its manifest, and leave everything else in its folder. Runs [`delete`](operations.md#delete).
+
+**Synopsis:** `shingi delete <unit>`, or `shingi delete -i <file>`.
+
+**Operation:** [`delete`](operations.md#delete).
+
+**Arguments:**
+
+| Argument | Field | Notes |
+|---|---|---|
+| `<unit>` | `/unit` | Required unless `--input` is given. The unit's path, exact. Never taken from the current directory. |
+
+**Options:** none.
+
+**Input:** none beyond the Arguments mapping.
+
+**Output:** Passthrough: `{ "path", "koan_folder", "working_folder", "tasks", "unblocked" }`.
+
+**Errors:** none beyond the operation's.
+
+**Examples:**
+
+```sh
+shingi delete HOME-12345/1-schmea                          # a mistyped create
+shingi delete HOME-12345/spike | jq -r .result.working_folder | xargs rm -r   # and its folder too
+shingi delete HOME-12345/spike && shingi adopt HOME-12345/spike branch        # the wrong kind, corrected
 ```
 
 ## Not included
