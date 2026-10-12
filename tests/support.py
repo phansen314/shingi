@@ -27,9 +27,11 @@ description = "Work on one branch of one repository."
 FAKE_KOAN = """\
 #!/usr/bin/env python3
 # koan, failing on cue: FAKE_KOAN_<CALL>=error|warn-error|garbage|crash|sleep|warn|partial (CALL as LIST, CREATE_BATCH,
-# BLOCK); partial does the call, then fails with what it made as koan's partial. FAKE_KOAN_<CALL>_TOUCH=<file>
+# BLOCK); partial does the call, then fails as koan does after making its tasks. FAKE_KOAN_<CALL>_TOUCH=<file>
 # creates that file after the call, to stage a race.
 import json, os, subprocess, sys
+WARNING = {"kind": "unusable-file", "message": "bad task file", "ids": [9], "paths": ["/x/9.json"]}
+ERROR = {"kind": "io", "rule": None, "message": "disk on fire", "ids": [9], "folders": [], "paths": [], "problems": [], "changed_paths": []}
 call = sys.argv[1]
 mode = os.environ.get("FAKE_KOAN_" + call.upper().replace("-", "_"), "")
 if mode == "garbage":
@@ -42,23 +44,20 @@ if mode == "sleep":  # tell the test it's waiting, then wait
     import time
     time.sleep(5)
 if mode in ("error", "warn-error"):
-    warnings = [{"kind": "unusable-file", "message": "bad task file", "paths": ["/x/9.json"], "ids": [9], "reason": "corrupt"}]
-    error = {"kind": "io", "message": "disk on fire", "details": {}}
-    print(json.dumps({"ok": False, "error": error, "warnings": warnings if mode == "warn-error" else []}))
+    print(json.dumps({"ok": False, "error": ERROR, "warnings": [WARNING] if mode == "warn-error" else []}))
     sys.exit(1)
 proc = subprocess.run([%r, *sys.argv[1:]], stdin=sys.stdin, capture_output=True)
 out = proc.stdout
 if mode == "warn":
     envelope = json.loads(out)
-    envelope["warnings"].append({"kind": "unusable-file", "message": "bad task file", "paths": ["/x/9.json"], "ids": [9], "reason": "corrupt"})
+    envelope["warnings"].append(WARNING)
     out = (json.dumps(envelope) + "\\n").encode()
 touch = os.environ.get("FAKE_KOAN_" + call.upper().replace("-", "_") + "_TOUCH")
 if touch:
     open(touch, "x").close()
 if mode == "partial":
-    result = json.loads(out)["result"]
-    partial = {"folders_created": result["folders_created"], "consumed": result["ids"], "ids": result["ids"], "refs": result["refs"]}
-    print(json.dumps({"ok": False, "error": {"kind": "io", "message": "disk on fire", "details": {}, "partial": partial}, "warnings": []}))
+    error = {**ERROR, "ids": json.loads(out)["result"]["ids"], "changed_paths": ["/x/state.json"]}
+    print(json.dumps({"ok": False, "error": error, "warnings": []}))
     sys.exit(1)
 sys.stdout.buffer.write(out)
 sys.exit(proc.returncode)

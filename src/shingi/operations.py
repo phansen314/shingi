@@ -238,9 +238,9 @@ def write_unit(rules, inp, path, kind, unit_id, adopting, parent, parent_start, 
             ],
         })
     except OperationError as error:
-        koan_partial = (error.details.get("error") or {}).get("partial") or {}
-        made["koan_folders"] = list(koan_partial.get("folders_created", []))
-        made["tasks"] = list(koan_partial.get("ids", []))
+        koan_error = error.details.get("error") or {}
+        if koan_error.get("changed_paths"):  # only then are its ids the tasks it made
+            made["tasks"] = list(koan_error["ids"])
         raise
     made["koan_folders"] = list(batch["folders_created"])
     made["tasks"] = [batch["refs"]["start"], batch["refs"]["done"]]

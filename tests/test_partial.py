@@ -22,12 +22,12 @@ class PartialTest(ShingiTestCase):
     def tasks_made(self, path):
         return sorted(t["id"] for t in self.koan("list", "--folder", f"/work/{path}")["tasks"])
 
-    def test_koans_own_partial_from_create_batch(self):
+    def test_the_tasks_a_failed_create_batch_made(self):
         self.fake_koan(create_batch="partial")
         error = self.failed("create", "HOME-1/a", "group")
         self.assertEqual(error["kind"], "koan-failed")
         self.assertEqual(error["partial"], {
-            "koan_folders": ["/work/HOME-1/a"], "tasks": self.tasks_made("HOME-1/a"), "blocked": None, "files": [],
+            "koan_folders": [], "tasks": self.tasks_made("HOME-1/a"), "blocked": None, "files": [],
         })
         self.assertFalse((self.working / "HOME-1" / "a").exists())
 

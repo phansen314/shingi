@@ -2,7 +2,11 @@ import unittest
 
 from support import ShingiTestCase
 
-KOAN_WARNING = {"kind": "unusable-file", "message": "bad task file", "paths": ["/x/9.json"], "ids": [9], "reason": "corrupt"}
+KOAN_WARNING = {"kind": "unusable-file", "message": "bad task file", "ids": [9], "paths": ["/x/9.json"]}
+KOAN_ERROR = {
+    "kind": "io", "rule": None, "message": "disk on fire", "ids": [9], "folders": [], "paths": [], "problems": [],
+    "changed_paths": [],
+}
 
 
 class KoanFailedOnReadTest(ShingiTestCase):
@@ -29,7 +33,7 @@ class KoanFailedOnReadTest(ShingiTestCase):
             "message": out["warnings"][0]["message"],
             "unit": "HOME-1",
             "ids": [],
-            "details": {"call": "list", "exit": 1, "error": {"kind": "io", "message": "disk on fire", "details": {}}},
+            "details": {"call": "list", "exit": 1, "error": KOAN_ERROR},
         }])
 
     def test_koan_without_an_envelope(self):

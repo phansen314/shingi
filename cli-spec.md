@@ -65,7 +65,7 @@ The command line is parsed in the GNU style, with koan's rules:
 
 A usage error is a problem with the command line itself: an unknown command or option, a missing or extra argument, an option missing its value, two different options that set one field, `--input` together with field arguments or options. It is reported as an envelope with error kind `usage`, and exits `2`. A token in the right place whose value is unacceptable is `invalid-input` or `invalid-name`, from the operation, the same error whether it arrives as an argument or through `--input`.
 
-`usage` is the CLI's only error kind of its own: no operation raises it. `details` reports the first problem found, as koan's does:
+`usage` is the CLI's only error kind of its own: no operation raises it. `details` reports the first problem found:
 
 ```json
 {

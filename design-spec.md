@@ -9,7 +9,7 @@ Give every piece of work on this machine one name and one place. A **unit of wor
 - **Store only what can't be derived, and stays true.** A unit's name, parent, children, and folders follow from where its manifest sits; when it was started and finished, from its tasks in koan. The manifest holds only its format version, the unit's identity, and its kind, the label chosen when it was made; all three are written once and never updated.
 - **shingi makes the structure, not the work.** `create` makes a unit's folders, its two files, and its start and done tasks, and nothing else. Its other tasks — setting it up, doing it, reviewing it — are added by a front end, an agent, or a person. Running the work, tracking it, and finishing it are other tools' jobs.
 - **Refuse only at `create`; after that, tell.** `create` (and [`adopt`](#adopt), its twin for an existing folder) refuses only what would make a new unit wrong from the start — a name koan or a sibling rules out, a missing parent, a kind the rules don't define — and never how units nest: any kind may hold any kind. After that, `where` and `list` warn about what they find and fix nothing. Fixing is for a person or an agent, and cheap when someone notices.
-- **Follow koan.** Wherever shingi and koan meet — names, the output envelope, exit codes, file formats, the config location, format versions — shingi does what koan does, so one habit covers both, and koan's specs give the detail this one leaves out.
+- **Follow koan.** Wherever shingi and koan meet — names, the output envelope, exit codes, file formats, format versions — shingi does what koan does, so one habit covers both, and koan's specs give the detail this one leaves out.
 
 shingi is one command, `shingi`: a Python 3.11+ package with no dependencies outside the standard library (see [Installing](#installing)). Its commands are [`where`](#where), [`context`](#context), [`list`](#list), [`create`](#create), [`adopt`](#adopt), [`kinds`](#kinds-1), and [`version`](#version).
 
@@ -85,12 +85,12 @@ shingi needs Python 3.11 or later, for `tomllib`, and is installed into its own 
 
 | What | Where |
 |---|---|
-| The rules | `shingi.toml` in shingi's config directory, found as koan and sesshin find theirs: on Linux, `$XDG_CONFIG_HOME/shingi` when `XDG_CONFIG_HOME` is an absolute path, otherwise `~/.config/shingi`; on macOS, `~/Library/Application Support/shingi`. |
+| The rules | `shingi.toml` in shingi's config directory, found as sesshin finds its own: on Linux, `$XDG_CONFIG_HOME/shingi` when `XDG_CONFIG_HOME` is an absolute path, otherwise `~/.config/shingi`; on macOS, `~/Library/Application Support/shingi`. |
 | A unit's tasks | Its koan folder: the koan root plus its path. |
 | A unit's manifest, notes, and working material | Its working folder: the working root plus its path. |
 | A unit's code | Wherever its setup tasks put it, as recorded in its notes. shingi doesn't know. |
 
-No shingi environment variable sets a location or a rule — only the platform's own config location, as for koan: a harness's environment is whatever started it, so a setting there could reach one process and not another. `--config <file>` overrides the rules file for one command, for tests and trials.
+No shingi environment variable sets a location or a rule — only the platform's own config location: a harness's environment is whatever started it, so a setting there could reach one process and not another. `--config <file>` overrides the rules file for one command, for tests and trials.
 
 ## The rules file
 
@@ -339,13 +339,13 @@ Read-only, derived each time from what shingi already reads — its own files, a
 3. **Write the files.** Make the working folder, write `uow.md`, then write the manifest, with its `id`. The unit exists from this moment, and not before.
 4. **Report.** Read the new unit back as `where` does, passing on any warning that read gives.
 
-`create` never resumes. One that fails after making something, before the manifest is written, is an error with `partial`, as koan's multi-file writes are; once the manifest is written the unit exists, and an error after that carries no `partial`:
+`create` never resumes. One that fails after making something, before the manifest is written, is an error with `partial`; once the manifest is written the unit exists, and an error after that carries no `partial`:
 
 ```json
 { "koan_folders": ["/work/HOME-12345/foo-split/1-schema"], "tasks": [41, 42], "blocked": { "task": 17, "added": [42] }, "files": ["/home/you/work/HOME-12345/foo-split/1-schema/uow.md"] }
 ```
 
-`koan_folders` are the koan folders it made, as koan's `folders_created` reports them, never one that was already there; `tasks`, the tasks it made; `blocked`, the blocker it added to the parent's done task, or `null`; `files`, the files and folders it made, never one that was already there. Cleaning up is undoing what `partial` lists, by an agent or by hand — `koan delete` on each task, which also takes it out of the parent's blockers, then `koan delete-folder` on each koan folder, innermost first, then removing the files — before running `create` again. The [skill](#claude-code) teaches this. A `create` killed before it could report leaves tasks that no manifest claims, which [`list`](#list) warns as [`orphan-task`](#problems); so may a koan call killed in the middle of `create`, whose outcome shingi can't know, so its `partial` may list less than was made.
+`koan_folders` are the koan folders it made, as koan's `folders_created` reports them, never one that was already there, and none when `koan create-batch` itself failed, since a failed batch doesn't say which folders it made: an empty koan folder it leaves is used as it is by the next `create`; `tasks`, the tasks it made; `blocked`, the blocker it added to the parent's done task, or `null`; `files`, the files and folders it made, never one that was already there. Cleaning up is undoing what `partial` lists, by an agent or by hand — `koan delete` on each task, which also takes it out of the parent's blockers, then `koan delete-folder` on each koan folder, innermost first, then removing the files — before running `create` again. The [skill](#claude-code) teaches this. A `create` killed before it could report leaves tasks that no manifest claims, which [`list`](#list) warns as [`orphan-task`](#problems); so may a koan call killed in the middle of `create`, whose outcome shingi can't know, so its `partial` may list less than was made.
 
 A folder already at the path is [`name-taken`](#problems), or [`unit-exists`](#problems) when it holds a `uow.json`, and nothing changes: an existing folder becomes a unit only by [`adopt`](#adopt), never by a mistyped `create`. A koan folder that already exists is used as it is. `create` never replaces or removes anything, and makes nothing outside koan and the working root, and no task but the unit's start and done tasks.
 

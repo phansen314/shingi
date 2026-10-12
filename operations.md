@@ -218,7 +218,7 @@ A path names a unit when, for each prefix of it from the first segment, the fold
 shingi runs `koan` from `PATH`, with its operation input as JSON on stdin (`koan <op> -i -`), and reads one koan envelope from its stdout.
 
 - **koan could not be run** — not on `PATH`, killed, an exit status other than `0`, `1`, or `2`, or stdout that is not an envelope — is `koan-failed` with `error` `null`. For a write, `create-batch` or `block`, its outcome is unknown: it may have taken effect.
-- **koan returned an error** is `koan-failed` with its `error`, with one exception: `list`'s `not-found` whose `folders` names the folder it was given, or a folder above it, means the koan folder doesn't exist yet, as before the first `create`, and is read as no tasks. koan names the first missing folder on the path, so with a koan root of `/work/shingi` and neither folder made yet, it names `/work`.
+- **koan returned an error** is `koan-failed` with its `error`, with one exception: `list`'s `not-found` whose `folders` names the folder it was given means the koan folder doesn't exist yet, as before the first `create`, and is read as no tasks.
 - **koan's warnings** are passed on, one `koan-warning` each, whether the call succeeded or not.
 
 ### Finding start and done tasks
@@ -699,7 +699,7 @@ Make one unit: its start and done tasks in koan, linked to its parent's, then it
    }
    ```
 
-   koan makes the koan folder, and any missing folder above it, as it makes a batch's folders. On failure: `koan-failed`, with what koan's own `partial` says it made; when koan's outcome is unknown, with no `partial`, since what it made can't be known.
+   koan makes the koan folder, and any missing folder above it, as it makes a batch's folders. On failure: `koan-failed`, with the tasks koan's error lists in `ids` when its `changed_paths` isn't empty, and no `koan_folders`: a failed batch doesn't say which folders it made, and an empty koan folder it leaves is used as it is by the next `create`. When koan's outcome is unknown, with no `partial`, since what it made can't be known.
 4. **Link the parent's done task,** when it was found: when its readiness is `done`, warn `parent-done` and leave it; otherwise run koan `block` with `{ "id": <parent's done task ID>, "blockers": [<new done task ID>] }`. On failure: `koan-failed`, with the tasks made; when koan's outcome is unknown, the link may have been made too, and `blocked` is `null`.
 5. **Write the files.**
    1. Make the working folder. One that appeared since the check is `name-taken`, with a `partial`.
@@ -757,7 +757,7 @@ Make one unit: its start and done tasks in koan, linked to its parent's, then it
   "type": "object",
   "required": ["koan_folders", "tasks", "blocked", "files"],
   "properties": {
-    "koan_folders": { "type": "array", "items": { "type": "string" }, "description": "The koan folders koan reported creating, in tree order; never one already there." },
+    "koan_folders": { "type": "array", "items": { "type": "string" }, "description": "The koan folders koan reported creating, in tree order; never one already there, and none when create-batch failed." },
     "tasks": { "type": "array", "items": { "type": "integer" }, "description": "The tasks made: the start task, then the done task." },
     "blocked": {
       "oneOf": [
