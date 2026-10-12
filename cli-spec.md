@@ -112,7 +112,7 @@ A usage error is a problem with the command line itself: an unknown command or o
 | Option | Meaning |
 |---|---|
 | `-i, --input <file>` | Read operation input from `<file>` (`-` for stdin). See [Input](#input). |
-| `--config <file>` | Read the rules from `<file>` instead of their [location](design-spec.md#locations), for tests and trials. Relative to the current directory; `~` is the shell's to expand. A missing or unreadable file is [`invalid-rules`](operations.md#error-kinds), as at the usual location, its `details.path` the file's absolute path. `version`, which reads no rules, accepts and ignores it. |
+| `--config <file>` | Read the rules, which define the kinds, from `<file>` instead of their [location](design-spec.md#locations), for tests and trials. It sets no root: those are fixed. Relative to the current directory; `~` is the shell's to expand. A missing or unreadable file is [`invalid-rules`](operations.md#error-kinds), its `details.path` the file's absolute path; only at the usual location does a missing file mean the built-in kinds. `version`, which reads no rules, accepts and ignores it. |
 | `-h, --help` | Print plain-text usage. |
 
 ## Command template
@@ -356,14 +356,15 @@ Make an existing folder a unit, leaving everything in it as it was. Runs [`adopt
 **Examples:**
 
 ```sh
-shingi adopt HOME-12345 group                   # ~/work/HOME-12345 already holds the story's notes
+shingi adopt HOME-12345 group                   # ~/shingi-root/HOME-12345 already holds the story's notes
 shingi adopt HOME-12345/spike branch --title 'foo: spike' | jq -r .result.unit.title
 ```
 
 ## Not included
 
-- **Environment overrides.** No `SHINGI_*` variable sets a location or a rule (see [Locations](design-spec.md#locations)); `--config` is the one override, for one command.
-- **`init`.** A missing rules file is `invalid-rules`, whose message points to the example in the design spec's [The rules file](design-spec.md#example).
+- **Environment overrides.** No `SHINGI_*` variable sets a location or a rule (see [Locations](design-spec.md#locations)); `--config` is the one override, of the rules only, for one command.
+- **A root option.** The tree is at `~/shingi-root` and `/shingi`; a symlink at `~/shingi-root` keeps it elsewhere.
+- **`init`.** Nothing needs setting up: with no rules file the built-in kinds apply, and the first `create` makes the roots.
 - **Filtering `list`.** `--open` is [future work](design-spec.md#filtering-list); until then, `jq`.
 - **Human-readable output and tree views.** The CLI is JSON only.
 - **Shell completion.**

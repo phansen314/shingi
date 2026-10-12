@@ -89,7 +89,7 @@ Every operation returns one of two shapes:
 | Kind | Meaning | `details` |
 |---|---|---|
 | `invalid-input` | The input failed its schema or its additional validation. Reports every problem, not just the first. | `problems`: `{field, reason}` list, `field` a JSON Pointer into the input, `reason` for people; sorted by `field`, then `reason`. |
-| `invalid-rules` | The rules file is missing, unreadable, not TOML, or breaks the design spec's [Fields](design-spec.md#fields). A working root that isn't an existing directory is one of these. | `path`: the rules file; `reason`: `missing`, `unreadable`, `syntax`, or `invalid`; `problems`: for `invalid`, a `{field, reason}` list, `field` the dotted TOML key (`roots.working`, `kind.branch.suggests`), sorted by `field`; otherwise empty. `code`: the symbolic OS error, for `unreadable`. |
+| `invalid-rules` | The rules file is unreadable, not TOML, or breaks the design spec's [Fields](design-spec.md#fields); or the file `--config` names is missing. | `path`: the rules file; `reason`: `missing` (from `--config` only), `unreadable`, `syntax`, or `invalid`; `problems`: for `invalid`, a `{field, reason}` list, `field` the dotted TOML key (`schema`, `kind.branch.suggests`), sorted by `field`; otherwise empty. `code`: the symbolic OS error, for `unreadable`. |
 | `unsupported-format` | The rules file's `schema` is an integer shingi doesn't support. | `path`; `schema`: the one found; `supported`: the ones shingi supports, ascending. |
 | `not-found` | The unit named is not a unit; from [`where`](#where) or [`context`](#context) without one, the current directory is in no unit; or, from [`adopt`](#adopt), the folder to adopt doesn't exist. | `unit`: the path given, or `null`; `missing`: the shortest prefix of `unit` that is not a unit (the first folder on the path that doesn't exist, matches only ignoring case, or holds no `uow.json`), or `null`; `cwd`: the directory given, or `null`; `reason`: `not-a-unit` (a path was given), `outside-root`, `no-unit`, or, from `adopt`, `no-folder` (with `missing` the path itself). |
 | `invalid-name` | A path breaks the design spec's [Names](design-spec.md#names). | `path`: as given; `index`: the first bad segment's position, from `0`; `segment`: that segment; `reason`: `empty` (a leading, trailing, or doubled `/`, or an empty path), `characters`, `length`, `hyphen` (starts or ends with `-`), or, from [`create`](#create) or [`adopt`](#adopt) only, `path-length` (the whole path is over 193 characters; `index` and `segment` `null`). |
@@ -172,13 +172,17 @@ The schemas here, the error and warning kinds, and the envelope are shingi's pub
 
 ### Reading the rules
 
-Every operation but [`version`](#version) reads the rules file first, from its [location](design-spec.md#locations) or the CLI's `--config`, checking it in this order:
+Every operation but [`version`](#version) reads the rules first: the file the CLI's `--config` names, or else `shingi.toml` at its [location](design-spec.md#locations). With no `--config` and no file there, the rules are the [built-in kinds](design-spec.md#the-built-in-kinds), and nothing is checked. Otherwise the file is checked in this order:
 
-1. It exists and can be read (`invalid-rules`, `reason` `missing` or `unreadable`), as UTF-8 TOML (`syntax`).
+1. It can be read (`invalid-rules`, `reason` `unreadable`; or `missing`, for a `--config` file that doesn't exist), as UTF-8 TOML (`syntax`).
 2. `schema` is present and an integer (`invalid`), and one shingi supports (`unsupported-format`). shingi 0.x supports `1`.
-3. Every other field, as [Fields](design-spec.md#fields) says, each problem reported (`invalid`). Unknown fields are problems. `roots.koan` is a koan folder path other than `/`: `/` followed by names joined by `/`. `roots.working`, after a leading `~/` is expanded, is absolute and an existing directory. Each kind name is a koan tag name, `^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`, and each `suggests` entry names a defined kind.
+3. Every other field, as [Fields](design-spec.md#fields) says, each problem reported (`invalid`). Unknown fields are problems. At least one kind is defined. Each kind name is a koan tag name, `^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$`, and each `suggests` entry names a defined kind.
 
-The working root is then used as its real path, symlinks resolved, everywhere: in every check and every path in output.
+### The roots
+
+The koan root is the koan folder `/shingi`. The working root is `~/shingi-root`, `~` being the user's home directory, and is used as its real path, symlinks resolved, everywhere: in every check and every path in output. Neither is configured, and no operation takes one as input.
+
+The working root may not exist yet, before the first [`create`](#create), which makes it. Until then every read finds no units: [`list`](#list) of every unit returns none, and a path or a directory names no unit (`not-found`). A working root that exists and isn't a directory, or can't be read, is `io`.
 
 ### Unit paths
 
@@ -193,7 +197,7 @@ A unit path is a relative path of names, as [Names](design-spec.md#names) define
 }
 ```
 
-A unit's **koan folder** is the koan root, `/`, and its path (`/work` + `HOME-12345` is `/work/HOME-12345`). Its **working folder** is the working root, `/`, and its path.
+A unit's **koan folder** is the koan root, `/`, and its path (`/shingi` + `HOME-12345` is `/shingi/HOME-12345`). Its **working folder** is the working root, `/`, and its path.
 
 ### Resolving a path
 
@@ -685,7 +689,7 @@ Make one unit: its start and done tasks in koan, linked to its parent's, then it
    1. [Read the rules](#reading-the-rules).
    2. `path` is a [unit path](#unit-paths) (`invalid-name`) of at most 193 characters, so `Start: <path>` fits koan's 200-character title (`invalid-name`, `reason` `path-length`), and `kind` is defined (`unknown-kind`).
    3. With more than one segment, the parent, `path` without its last segment, [resolves](#resolving-a-path) (`parent-not-found`).
-   4. List the parent's working folder, or the working root. A directory with exactly the name that holds a `uow.json` is `unit-exists`. Any other entry whose name equals the new name, exactly or ignoring ASCII case, is `name-taken`: an existing folder becomes a unit only by [`adopt`](#adopt).
+   4. List the parent's working folder, or the working root; a working root that doesn't exist yet has no entries. A directory with exactly the name that holds a `uow.json` is `unit-exists`. Any other entry whose name equals the new name, exactly or ignoring ASCII case, is `name-taken`: an existing folder becomes a unit only by [`adopt`](#adopt).
 2. **Find the parent's tasks,** with a parent: [read its manifest](#reading-a-unit), and, when usable, [find its start and done tasks](#finding-start-and-done-tasks), non-recursively, in its koan folder. A koan failure here is `koan-failed`, with nothing made. Each of the two that isn't found — the manifest unusable, or no task matches — is `parent-unlinked`, and its link is left out.
 3. **Make the tasks.** Make a fresh `id`, a random (version 4) UUID. Run koan `create-batch`:
 
@@ -702,7 +706,7 @@ Make one unit: its start and done tasks in koan, linked to its parent's, then it
    koan makes the koan folder, and any missing folder above it, as it makes a batch's folders. On failure: `koan-failed`, with the tasks koan's error lists in `ids` when its `changed_paths` isn't empty, and no `koan_folders`: a failed batch doesn't say which folders it made, and an empty koan folder it leaves is used as it is by the next `create`. When koan's outcome is unknown, with no `partial`, since what it made can't be known.
 4. **Link the parent's done task,** when it was found: when its readiness is `done`, warn `parent-done` and leave it; otherwise run koan `block` with `{ "id": <parent's done task ID>, "blockers": [<new done task ID>] }`. On failure: `koan-failed`, with the tasks made; when koan's outcome is unknown, the link may have been made too, and `blocked` is `null`.
 5. **Write the files.**
-   1. Make the working folder. One that appeared since the check is `name-taken`, with a `partial`.
+   1. Make the working folder; for a top-level unit, make the working root first when it is missing. One that appeared since the check is `name-taken`, with a `partial`. The working root is never listed in `partial`: it is not the unit's, and stays.
    2. Create `uow.md` exclusively: `# <title>` and a newline, then, with non-empty `notes`, a blank line and the notes, followed by a newline unless they already end in one.
    3. Write the manifest, `{ "schema": 1, "id": <id>, "kind": <kind> }`, in the [file format](design-spec.md#file-format): to a hidden temp file in the working folder, `.uow.json.<random>.tmp`, flushed, then hard-linked as `uow.json`, and the temp file removed. A link that fails because `uow.json` exists is `unit-exists`, with a `partial`. A temp file that can't be removed is left: it is hidden.
 6. **Report:** read the new unit as [`where`](#where) does, and return it with the warnings that read gives.

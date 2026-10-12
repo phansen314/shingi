@@ -39,7 +39,7 @@ Two boundaries keep the blocks apart:
 - **Moving, renaming, or deleting units.** By hand for now; see [Moving and removing units](#moving-and-removing-units).
 - **Knowing what a name means.** A name is only a name: a Jira key, a ticket number, or a slug are all the same to shingi, which infers nothing from one. What a name refers to comes from outside shingi.
 - **Talking to Jira or any other tracker.**
-- **More than one user, or more than one machine.** Each machine has its own rules and roots. Work and home are separate machines, with separate trees.
+- **More than one user, more than one machine, or more than one tree.** Each machine has one tree, at one fixed place (see [Locations](#locations)). Work and home are separate machines, with separate trees.
 - **Windows.** As for koan and sesshin.
 
 ## Assumptions
@@ -73,8 +73,8 @@ shingi needs Python 3.11 or later, for `tomllib`, and is installed into its own 
 | **parent**, **children** | The unit whose folder holds this one's, and the units whose folders this one holds. Derived from the nesting. |
 | **top-level unit** | A unit whose folder sits directly in the working root. |
 | **id** | A unit's identity: a random UUID in its manifest, carried by its start and done tasks (see [Names and identity](#names-and-identity)). |
-| **kind** | A label for what a unit is: `group`, `branch`, or any other the rules define (see [Kinds](#kinds)). |
-| **roots** | The two places the rules name: the koan root, a koan folder path, and the working root, a directory (see [The rules file](#the-rules-file)). |
+| **kind** | A label for what a unit is: `group` and `branch`, built in, or whichever the rules define instead (see [Kinds](#kinds)). |
+| **roots** | The two fixed places a tree lives: the koan root, the koan folder `/shingi`, and the working root, the directory `~/shingi-root` (see [Locations](#locations)). |
 | **koan folder** | A unit's folder in koan's tree: the koan root plus its path. |
 | **working folder** | A unit's folder on disk: the working root plus its path. Holds its `uow.json`, its `uow.md`, and any other working material. |
 | **manifest** | A unit's `uow.json`: its identity and kind, written by shingi. |
@@ -83,25 +83,31 @@ shingi needs Python 3.11 or later, for `tomllib`, and is installed into its own 
 
 ## Locations
 
+Every location is fixed, as koan's are: nothing configures where a tree is.
+
 | What | Where |
 |---|---|
-| The rules | `shingi.toml` in shingi's config directory, found as sesshin finds its own: on Linux, `$XDG_CONFIG_HOME/shingi` when `XDG_CONFIG_HOME` is an absolute path, otherwise `~/.config/shingi`; on macOS, `~/Library/Application Support/shingi`. |
-| A unit's tasks | Its koan folder: the koan root plus its path. |
-| A unit's manifest, notes, and working material | Its working folder: the working root plus its path. |
+| The working root | `~/shingi-root`, on Linux and macOS alike. To keep it somewhere else, make `~/shingi-root` a symlink to it. [`create`](#create) makes it when it is missing. |
+| The koan root | The koan folder `/shingi`, which koan makes with the first unit's tasks. |
+| The rules, when you write any | `shingi.toml` in shingi's config directory, found as sesshin finds its own: on Linux, `$XDG_CONFIG_HOME/shingi` when `XDG_CONFIG_HOME` is an absolute path, otherwise `~/.config/shingi`; on macOS, `~/Library/Application Support/shingi`. |
+| A unit's tasks | Its koan folder: `/shingi` plus its path. |
+| A unit's manifest, notes, and working material | Its working folder: `~/shingi-root` plus its path. |
 | A unit's code | Wherever its setup tasks put it, as recorded in its notes. shingi doesn't know. |
 
-No shingi environment variable sets a location or a rule — only the platform's own config location: a harness's environment is whatever started it, so a setting there could reach one process and not another. `--config <file>` overrides the rules file for one command, for tests and trials.
+No shingi environment variable sets a location or a rule — only the platform's own home and config locations: a harness's environment is whatever started it, so a setting there could reach one process and not another. `--config <file>` overrides the rules file for one command, for tests and trials; nothing overrides a root.
+
+A machine has one tree. A fresh install needs no setup: with no rules file shingi uses its [built-in kinds](#the-built-in-kinds), and the first `create` makes both roots.
 
 ## The rules file
 
-### Example
+The rules file defines the kinds, and nothing else. It is optional: without one, shingi uses the built-in kinds.
+
+### The built-in kinds
+
+What shingi uses when there is no `shingi.toml`, written as the rules file that would define them:
 
 ```toml
 schema = 1
-
-[roots]
-koan    = "/work"
-working = "~/work"
 
 [kind.group]
 description = "Work gathered under one name: a project, a story, an epic, a research phase."
@@ -112,18 +118,18 @@ description = "Work on one branch of one repository."
 suggests    = []
 ```
 
+A rules file replaces them all: it is never merged with them. To add a kind and keep these two, copy them in.
+
 ### Fields
 
 | Field | Type | Meaning |
 |---|---|---|
 | `schema` | integer | The file's format version (see [Format versions](#format-versions)). Required. |
-| `roots.koan` | string | The koan root: a koan folder path, absolute, and never `/`. A folder only shingi uses, such as `/work` (see [Assumptions](#assumptions)). Required. |
-| `roots.working` | string | The working root. A leading `~/` is the home directory; otherwise absolute. Must be an existing directory: shingi never makes it. Required. |
 | `kind.<name>` | table | Defines a kind. `<name>` is lowercase ASCII letters, digits, and `-`, as a koan tag. At least one kind is required. |
 | `kind.<name>.description` | string | What the kind is for, one line, for [`kinds`](#kinds-1) to report. Optional. |
 | `kind.<name>.suggests` | array of strings | The kinds a unit of this kind usually holds, for a front end to propose first. Each names a defined kind. Optional; default `[]`. |
 
-Unknown fields are an error, not ignored, so a typo says so instead of silently doing nothing. Any error in the rules file, a missing working root among them, is an error for every command but `version`, which doesn't read it. A missing rules file is `invalid-rules` too, and its message points to the example above, which the [skill](#claude-code) and the README carry; there is no `init`.
+Unknown fields are an error, not ignored, so a typo says so instead of silently doing nothing; a `[roots]` table, from before the roots were fixed, is one. Any error in a rules file that exists is an error for every command but `version`, which doesn't read it: shingi never falls back to the built-in kinds past a file it can't use. There is no `init`.
 
 ## The hierarchy
 
@@ -159,7 +165,7 @@ All fields are required. Unknown fields are an error, as in the rules file.
 
 ### Example
 
-`~/work/HOME-12345/foo-split/1-schema/uow.json`:
+`~/shingi-root/HOME-12345/foo-split/1-schema/uow.json`:
 
 ```json
 {
@@ -208,14 +214,14 @@ Worktree: /home/you/repos/foo/.claude/worktrees/HOME-12345-foo-1-schema
 
 ## Kinds
 
-A kind is a label for what a unit is, defined in the rules file: context for the people, agents, and front ends reading the tree. shingi does nothing differently for one kind than another: every unit has the same manifest, the same files, and the same start and done tasks, whatever its kind.
+A kind is a label for what a unit is, built in or defined in the rules file: context for the people, agents, and front ends reading the tree. shingi does nothing differently for one kind than another: every unit has the same manifest, the same files, and the same start and done tasks, whatever its kind.
 
-- **Configured, not built in.** shingi knows no kind by name. The rules define them, each with a description and the kinds it suggests holding. Adding a kind, or changing one, is an edit to `shingi.toml`, never a change to shingi or to any manifest.
+- **Two built in, all of them configurable.** With no rules file, shingi defines `group` and `branch` (see [The built-in kinds](#the-built-in-kinds)), so it works as installed. A rules file defines the kinds instead, each with a description and the kinds it suggests holding. shingi treats no kind specially by name, the built-in two included: adding a kind, or changing one, is an edit to `shingi.toml`, never a change to shingi or to any manifest.
 - **Checked at `create`, told after.** `create` refuses a kind the rules don't define ([`unknown-kind`](#problems)), so a typo doesn't become a label. A manifest whose kind is no longer defined — renamed or removed from the rules since — is still a unit: [`where`](#where) and [`list`](#list) read it as usual and warn [`undefined-kind`](#problems).
 - **What a kind means in practice is the front end's.** A front end or the skill may add different tasks to a `branch` than to a `group` — a setup task, a review task — by looking at the kind.
 - **Suggestions, not rules.** A kind's `suggests` is what a front end proposes first when creating a child. Any kind may hold any kind, and nothing checks the nesting, at `create` or after.
 
-The example rules define two kinds, the shapes that come up most:
+The built-in kinds are the two shapes that come up most:
 
 - **`group`:** work gathered under one name — a long-lived project; a Jira story or epic, named by its key; a one-off at the top level; story-level research; the seven stacked branches of one large change. What a group is *for* goes in its `uow.md`.
 - **`branch`:** work on one branch of one repository. Usually a leaf, and the unit with code to work on: a story split into seven merge requests is a `group` named by its key, holding a `group` of seven `branch` units, plus a `branch` in each other repository it touches. Its setup task, added by the front end or an agent, chooses the repository and branch name — an agent proposing a slug, a person confirming it — makes the worktree, and records them under `## Code` in its `uow.md`.
@@ -283,9 +289,9 @@ A unit is named on the command line by its path (`HOME-12345/foo-split/1-schema`
   "state": "started",
   "parent": "HOME-12345/foo-split",
   "children": [],
-  "koan_folder": "/work/HOME-12345/foo-split/1-schema",
-  "working_folder": "/home/you/work/HOME-12345/foo-split/1-schema",
-  "notes_path": "/home/you/work/HOME-12345/foo-split/1-schema/uow.md",
+  "koan_folder": "/shingi/HOME-12345/foo-split/1-schema",
+  "working_folder": "/home/you/shingi-root/HOME-12345/foo-split/1-schema",
+  "notes_path": "/home/you/shingi-root/HOME-12345/foo-split/1-schema/uow.md",
   "start": { "id": 41, "readiness": "done", "created_at": "2026-10-04T09:12:00Z", "completed_at": "2026-10-05T08:30:00Z" },
   "done": { "id": 42, "readiness": "blocked", "created_at": "2026-10-04T09:12:00Z", "completed_at": null }
 }
@@ -342,7 +348,7 @@ Read-only, derived each time from what shingi already reads — its own files, a
 `create` never resumes. One that fails after making something, before the manifest is written, is an error with `partial`; once the manifest is written the unit exists, and an error after that carries no `partial`:
 
 ```json
-{ "koan_folders": ["/work/HOME-12345/foo-split/1-schema"], "tasks": [41, 42], "blocked": { "task": 17, "added": [42] }, "files": ["/home/you/work/HOME-12345/foo-split/1-schema/uow.md"] }
+{ "koan_folders": ["/shingi/HOME-12345/foo-split/1-schema"], "tasks": [41, 42], "blocked": { "task": 17, "added": [42] }, "files": ["/home/you/shingi-root/HOME-12345/foo-split/1-schema/uow.md"] }
 ```
 
 `koan_folders` are the koan folders it made, as koan's `folders_created` reports them, never one that was already there, and none when `koan create-batch` itself failed, since a failed batch doesn't say which folders it made: an empty koan folder it leaves is used as it is by the next `create`; `tasks`, the tasks it made; `blocked`, the blocker it added to the parent's done task, or `null`; `files`, the files and folders it made, never one that was already there. Cleaning up is undoing what `partial` lists, by an agent or by hand — `koan delete` on each task, which also takes it out of the parent's blockers, then `koan delete-folder` on each koan folder, innermost first, then removing the files — before running `create` again. The [skill](#claude-code) teaches this. A `create` killed before it could report leaves tasks that no manifest claims, which [`list`](#list) warns as [`orphan-task`](#problems); so may a koan call killed in the middle of `create`, whose outcome shingi can't know, so its `partial` may list less than was made.
@@ -377,7 +383,7 @@ Every problem shingi reports, by name. An error means the command changed nothin
 |---|---|---|
 | `usage` | all | The command line is malformed: an unknown command or option, a missing or extra argument, `-i` together with an argument or option that sets an input field, `--notes` together with `--notes-file`. |
 | `invalid-input` | all | The input is the wrong shape: `create -i` JSON that isn't an object of the right fields, or a `--title` that is empty or holds a line break. |
-| `invalid-rules` | all but `version` | The rules file is missing, unreadable, or breaks [Fields](#fields). |
+| `invalid-rules` | all but `version` | The rules file is there and unreadable, or breaks [Fields](#fields); or the file `--config` names is missing. No rules file at the usual location is not an error: the built-in kinds apply. |
 | `unsupported-format` | all but `version` | The rules file's `schema` is one shingi doesn't support. |
 | `not-found` | `where`, `context`, `list`, `adopt` | The path named is not a unit: a folder on it doesn't exist, matches only ignoring case, or holds no `uow.json`. Names the first folder on the path that isn't a unit, so a unit cut off by an ancestor's missing manifest says which. From `where` or `context` with no unit, the current directory is in no unit, or outside the working root. From `adopt`, the folder to adopt doesn't exist. |
 | `invalid-name` | `where`, `context`, `list`, `create`, `adopt` | A segment of the path breaks [Names](#names), or, from `create` or `adopt`, the path is over 193 characters. Checked before the path is looked up, so no path reaches outside the working root. |
