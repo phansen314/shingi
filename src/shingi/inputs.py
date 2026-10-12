@@ -17,6 +17,7 @@ FIELDS = {
     "list": {"unit": False},
     "create": {"path": True, "kind": True, "title": False, "notes": False},
     "adopt": {"path": True, "kind": True, "title": False},
+    "delete": {"unit": True},
 }
 
 

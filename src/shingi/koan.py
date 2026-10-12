@@ -78,3 +78,15 @@ def create_batch(payload):
 
 def block(task_id, blockers):
     return write("block", {"id": task_id, "blockers": blockers})
+
+
+def delete_folder(folder):
+    """Remove `folder` and every task in it; return koan's result, or None when the folder isn't
+    there, and koan's warnings."""
+    envelope, warnings = run("delete-folder", {"folder": folder, "recursive": True})
+    if envelope["ok"]:
+        return envelope["result"], warnings
+    error = envelope["error"]
+    if error["kind"] == "not-found" and folder in error["folders"]:
+        return None, warnings
+    raise failed("delete-folder", 1, error, f"koan delete-folder failed: {error['message']}", warnings)

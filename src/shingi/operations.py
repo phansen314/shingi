@@ -164,6 +164,36 @@ def adopt(inp, config):
     return make_unit(inp, config, adopting=True)
 
 
+def delete(inp, config):
+    """Make a unit a plain folder again: remove its koan folder, then its manifest."""
+    inputs.check("delete", inp)
+    rules = rules_file.load(config)
+    path = inp["unit"]
+    units.check_path(path)
+    units.resolve(rules, path)
+    children = [child["path"] for child in units.children(rules, path)]
+    if children:
+        raise OperationError(
+            "has-children", f"{path} has child units; delete those first", {"unit": path, "children": children}
+        )
+    kfolder, folder = units.koan_folder(rules, path), units.working_folder(rules, path)
+    removed, warnings = koan.delete_folder(kfolder)
+    manifest = folder / units.MANIFEST
+    try:
+        manifest.unlink(missing_ok=True)
+    except OSError as exc:
+        error = io_error(exc, manifest)
+        error.warnings = warnings
+        raise error
+    return {
+        "path": path,
+        "koan_folder": kfolder,
+        "working_folder": str(folder),
+        "tasks": sorted(removed["deleted"]) if removed else [],
+        "unblocked": sorted(removed["dependents"]) if removed else [],
+    }, warnings
+
+
 def make_unit(inp, config, adopting):
     """create, or with `adopting`, adopt: they differ only in the working folder."""
     rules = rules_file.load(config)

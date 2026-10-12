@@ -28,6 +28,7 @@ COMMANDS = {
         {"--title": "title", "--notes": "notes", "--notes-file": "notes@file"},
     ),
     "adopt": (operations.adopt, ["path", "kind"], {"--title": "title"}),
+    "delete": (operations.delete, ["unit"], {}),
 }
 
 
@@ -43,6 +44,7 @@ HELP = {
         "Make one unit: its start and done tasks in koan, its working folder, uow.md, and manifest.",
     ),
     "adopt": ("shingi adopt <path> <kind> [--title <text>]", "Make an existing folder a unit, leaving what is in it."),
+    "delete": ("shingi delete <unit>", "Make a unit a plain folder again: remove its tasks and manifest, and leave its files."),
 }
 
 GLOBAL_OPTIONS = """\

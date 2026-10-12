@@ -32,7 +32,7 @@ Branch on `.error.kind`, not the exit code. **Always tell the user about any `wa
 | 0 | Success, with or without warnings | — |
 | 1 | Operation error; see `.error.kind` | See below |
 | 2 | Usage error (bad command line) | Fix the command |
-| 3 or other | Outcome unknown (killed, stdout lost) | Reads: rerun. `create` and `adopt`: **don't** rerun blind; see [When create fails](#when-create-or-adopt-fails). |
+| 3 or other | Outcome unknown (killed, stdout lost) | Reads and `delete`: rerun. `create` and `adopt`: **don't** rerun blind; see [When create fails](#when-create-or-adopt-fails). |
 
 Error kinds worth handling:
 
@@ -105,6 +105,14 @@ shingi adopt HOME-12345/spike branch --title 'foo: spike'   # --title only used 
 ```
 
 `create` refuses a folder that's already there (`name-taken`), so a typo never swallows existing work.
+
+**A unit made by mistake** (a mistyped name, the wrong parent, the wrong kind) is undone with `delete`:
+
+```sh
+shingi delete HOME-12345/1-schmea
+```
+
+It removes the unit's koan folder with **every task in it, and their notes, for good**, and its `uow.json`; the parent's done task stops waiting on it. The folder, its `uow.md`, and everything else in it stay as a plain folder: `adopt` it again with the right kind, or remove it yourself if the user wants it gone. It refuses a unit with child units (`has-children`: delete those first), and takes a path, never the current directory. If it fails, run it again. **Ask the user before deleting, and say what tasks will be lost** (`koan list --folder <its koan folder>`). Never `delete` a unit whose work was cancelled or finished: that one is finished, below, so its history stays.
 
 4. **Add the unit's other tasks,** wired to its start and done tasks (below). A `branch` gets a setup task.
 
@@ -206,5 +214,6 @@ There are no commands for these yet. **Only with the user's go-ahead**, naming w
 - **Never create, edit, rename, or delete a `uow.json`.** It is shingi's. Edit `uow.md` freely: it is everyone's, and its first line, `# <title>`, is the unit's title.
 - **Never compose a unit's koan folder or working folder** from the roots and the path: ask `shingi where`.
 - **Don't create or adopt units the user didn't ask for**; propose them. Both ask for permission anyway.
+- **Never `delete` a unit unasked,** and never one whose work was done or cancelled: finish that one instead.
 - **Never mark a start task done unless asked to begin that unit, nor a parent's done task unless the user agrees to close it.**
 - **Don't put anything under `~/shingi-root` but units and their working material**: never a repository checkout. Code lives in worktrees elsewhere, named in `## Code`.

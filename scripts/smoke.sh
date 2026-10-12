@@ -237,6 +237,16 @@ koan done "$a_done"
 check "a done" 0 '.result.state == "done"' -- where HOME-1/a
 check "what's left" 0 '[.result.units[] | select(.state != "done") | .path] == ["HOME-1", "HOME-1/b", "HOME-1/b/x"]' -- list HOME-1
 
+echo "== deleting"
+check "a unit with children is refused" 1 '.error.kind == "has-children" and .error.details.children == ["HOME-1/b/x"]' -- delete HOME-1/b
+check "delete a leaf" 0 '.result | .path == "HOME-1/b/x" and (.tasks | length) == 2 and .unblocked == []' -- delete HOME-1/b/x
+expect "its folder and notes stay, its manifest goes" '[[ -f $HOME/shingi-root/HOME-1/b/x/uow.md && ! -e $HOME/shingi-root/HOME-1/b/x/uow.json ]]'
+check "no longer a unit" 1 '.error.kind == "not-found"' -- delete HOME-1/b/x
+p_done=$(jq .result.done.id <<<"$("$SHINGI" where HOME-1)")
+check "its parent, which the top unit waited on" 0 '.result.unblocked == ['"$p_done"']' -- delete HOME-1/b
+check "nothing left over" 0 '[.result.units[].path] == ["HOME-1", "HOME-1/a"] and .warnings == []' -- list HOME-1
+check "adopt brings it back" 0 '.result.unit | .path == "HOME-1/b" and .kind == "group"' -- adopt HOME-1/b group
+
 echo
 echo "$pass passed, $fail failed"
 [[ $fail -eq 0 ]]
