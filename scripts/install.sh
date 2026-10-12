@@ -290,12 +290,12 @@ if [[ $mode == install ]]; then
 		echo "koan, which shingi runs for every unit's tasks, is not on PATH. Install it with:"
 		echo "  GOBIN=~/.local/bin go install github.com/phansen314/koan/cmd/koan@latest"
 	fi
-	# kinds reads the rules and nothing else, so its failing means they're
-	# missing or wrong.
+	# kinds reads the rules and nothing else, so its failing means a
+	# shingi.toml is there and wrong; none at all is fine.
 	if ! kinds=$(shingi kinds 2>/dev/null) && [[ $(jq -r '.error.kind // empty' <<<"$kinds" 2>/dev/null) == invalid-rules ]]; then
 		echo
-		echo "shingi has no usable rules file yet: $(jq -r '.error.message' <<<"$kinds")"
-		echo "  See \"The rules file\" in $repo/README.md for an example."
+		echo "shingi can't use its rules file: $(jq -r '.error.message' <<<"$kinds")"
+		echo "  See \"Kinds\" in $repo/README.md for an example, or remove the file to use the built-in kinds."
 	fi
 	if [[ -n $want_claude ]] && command -v claude >/dev/null &&
 		! claude plugin list --json 2>/dev/null | jq -e 'any(.[]; .id == "shingi@shingi" and .enabled)' >/dev/null; then

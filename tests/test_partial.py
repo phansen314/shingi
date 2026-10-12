@@ -20,7 +20,7 @@ class PartialTest(ShingiTestCase):
         return out["error"]
 
     def tasks_made(self, path):
-        return sorted(t["id"] for t in self.koan("list", "--folder", f"/work/{path}")["tasks"])
+        return sorted(t["id"] for t in self.koan("list", "--folder", f"/shingi/{path}")["tasks"])
 
     def test_the_tasks_a_failed_create_batch_made(self):
         self.fake_koan(create_batch="partial")
@@ -48,7 +48,7 @@ class PartialTest(ShingiTestCase):
                 self.assertEqual(error["kind"], "koan-failed")
                 self.assertEqual(error["details"]["call"], "block")
                 self.assertEqual(error["partial"], {
-                    "koan_folders": [f"/work/{path}"], "tasks": self.tasks_made(path), "blocked": None, "files": [],
+                    "koan_folders": [f"/shingi/{path}"], "tasks": self.tasks_made(path), "blocked": None, "files": [],
                 })
 
     def test_a_failed_calls_warnings_come_with_the_partial(self):
@@ -65,7 +65,7 @@ class PartialTest(ShingiTestCase):
         self.assertEqual(error["details"], {"entry": "a", "type": "file"})
         start, done = self.tasks_made("HOME-1/a")
         self.assertEqual(error["partial"], {
-            "koan_folders": ["/work/HOME-1/a"],
+            "koan_folders": ["/shingi/HOME-1/a"],
             "tasks": [start, done],
             "blocked": {"task": self.parent["done"]["id"], "added": [done]},
             "files": [],
@@ -98,7 +98,7 @@ class PartialTest(ShingiTestCase):
         error = self.failed("adopt", "HOME-1/a", "group")
         self.assertEqual(error["kind"], "unit-exists")
         self.assertEqual(error["partial"]["files"], [str(folder / "uow.md")])
-        self.assertEqual(error["partial"]["koan_folders"], ["/work/HOME-1/a"])
+        self.assertEqual(error["partial"]["koan_folders"], ["/shingi/HOME-1/a"])
 
     def test_undoing_it_then_running_create_again(self):
         self.fake_koan(block_touch=self.working / "HOME-1" / "a")

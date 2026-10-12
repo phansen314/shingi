@@ -70,7 +70,8 @@ koan() { "$KOAN" "$@" >/dev/null; }
 
 echo "== before rules"
 check "version" 0 '.ok and (.result.version | type == "string")' -- version
-check "kinds: no rules file" 1 '.error.kind == "invalid-rules" and .error.details.reason == "missing"' -- kinds
+check "kinds: no rules file, so the built-in two" 0 '[.result.kinds[].name] == ["branch", "group"]' -- kinds
+check "a missing --config file" 1 '.error.kind == "invalid-rules" and .error.details.reason == "missing"' -- kinds --config "$tmp/nope.toml"
 check "no command" 2 '.error.kind == "usage"' --
 check "unknown command" 2 '.error.details.problems[0].argument == "init"' -- init
 expect "--help" '[[ $("$SHINGI" --help) == "Usage: shingi <command>"* ]]'
@@ -78,15 +79,12 @@ expect "unwritable stdout is exit 3" '(exec 1>&-; "$SHINGI" version 2>/dev/null)
 
 echo "== rules"
 koan init
-mkdir -p "$HOME/work" "$XDG_CONFIG_HOME/shingi"
-printf 'schema = 1\n[roots]\nkoan = "/work"\nworking = "~/work"\n[kind.group]\nsugests = []\n' >"$XDG_CONFIG_HOME/shingi/shingi.toml"
+mkdir -p "$XDG_CONFIG_HOME/shingi"
+check "no units before the first create" 0 '.result.units == []' -- list
+printf 'schema = 1\n[kind.group]\nsugests = []\n' >"$XDG_CONFIG_HOME/shingi/shingi.toml"
 check "a typo in the rules" 1 '.error.details.problems == [{field: "kind.group.sugests", reason: "unknown field"}]' -- kinds
 cat >"$XDG_CONFIG_HOME/shingi/shingi.toml" <<'EOF'
 schema = 1
-
-[roots]
-koan    = "/work"
-working = "~/work"
 
 [kind.group]
 description = "Work gathered under one name."
@@ -104,15 +102,15 @@ check "a top-level group" 0 '.result.unit | .path == "HOME-1" and .kind == "grou
 	-- create HOME-1 group --title 'Payment retries'
 p_start=$(jq .result.unit.start.id <<<"$out")
 p_done=$(jq .result.unit.done.id <<<"$out")
-check "where it lives" 0 '.result | .koan_folder == "/work/HOME-1" and .working_folder == "'"$HOME"'/work/HOME-1" and .notes_path == "'"$HOME"'/work/HOME-1/uow.md"' \
+check "where it lives" 0 '.result | .koan_folder == "/shingi/HOME-1" and .working_folder == "'"$HOME"'/shingi-root/HOME-1" and .notes_path == "'"$HOME"'/shingi-root/HOME-1/uow.md"' \
 	-- where HOME-1
 check "where reports what create did" 0 '.result | .start.id == '"$p_start"' and .done.id == '"$p_done" -- where HOME-1
-expect "manifest and notes on disk" '[[ -f $HOME/work/HOME-1/uow.json && $(cat "$HOME/work/HOME-1/uow.md") == "# Payment retries" ]]'
-expect "nothing hidden left behind" '[[ -z $(ls -A "$HOME/work/HOME-1" | grep "^\.") ]]'
+expect "manifest and notes on disk" '[[ -f $HOME/shingi-root/HOME-1/uow.json && $(cat "$HOME/shingi-root/HOME-1/uow.md") == "# Payment retries" ]]'
+expect "nothing hidden left behind" '[[ -z $(ls -A "$HOME/shingi-root/HOME-1" | grep "^\.") ]]'
 check "title defaults to the name" 0 '.result.unit.title == "HOME-2"' -- create HOME-2 group
 check "notes from stdin" 0 '.ok' -- create HOME-3 group --title 'Notes' --notes-file - <<<'Story: retry failed payments.'
-expect "notes below the title" '[[ $(cat "$HOME/work/HOME-3/uow.md") == $'"'"'# Notes\n\nStory: retry failed payments.'"'"' ]]'
-koan delete-folder -r /work/HOME-3 && rm -rf "$HOME/work/HOME-3"  # out of the way of list's checks
+expect "notes below the title" '[[ $(cat "$HOME/shingi-root/HOME-3/uow.md") == $'"'"'# Notes\n\nStory: retry failed payments.'"'"' ]]'
+koan delete-folder -r /shingi/HOME-3 && rm -rf "$HOME/shingi-root/HOME-3"  # out of the way of list's checks
 check "--notes with --notes-file" 2 '.error.kind == "usage"' -- create HOME-7 group --notes a --notes-file -
 check "again: unit-exists" 1 '.error.kind == "unit-exists"' -- create HOME-1 group
 check "unknown kind" 1 '.error.details | .kind == "story" and .defined == ["branch", "group"]' -- create HOME-3 story
@@ -128,7 +126,7 @@ check "not one object" 1 '.error.details.problems[0].field == ""' -- kinds -i - 
 check "input with arguments" 2 '.error.kind == "usage"' -- create HOME-3 group -i - <<<'{}'
 
 echo "== nesting"
-check "child a" 0 '.result.unit | .parent == "HOME-1" and .koan_folder == "/work/HOME-1/a" and .start.readiness == "blocked"' -- create HOME-1/a branch
+check "child a" 0 '.result.unit | .parent == "HOME-1" and .koan_folder == "/shingi/HOME-1/a" and .start.readiness == "blocked"' -- create HOME-1/a branch
 a_done=$(jq .result.unit.done.id <<<"$out")
 check "child b" 0 '.result.unit.parent == "HOME-1"' -- create HOME-1/b branch
 b_done=$(jq .result.unit.done.id <<<"$out")
@@ -140,14 +138,14 @@ check "parent started" 0 '.result.state == "started"' -- where HOME-1
 check "a child is ready once its parent starts" 0 '.result.start.readiness == "ready"' -- where HOME-1/a
 
 echo "== where from a directory"
-mkdir -p "$HOME/work/HOME-1/a/logs/2026" "$HOME/work/scratch"
-cd "$HOME/work/HOME-1/a"
+mkdir -p "$HOME/shingi-root/HOME-1/a/logs/2026" "$HOME/shingi-root/scratch"
+cd "$HOME/shingi-root/HOME-1/a"
 check "in a working folder" 0 '.result.path == "HOME-1/a"' -- where
-cd "$HOME/work/HOME-1/a/logs/2026"
+cd "$HOME/shingi-root/HOME-1/a/logs/2026"
 check "in working material" 0 '.result.path == "HOME-1/a"' -- where
-cd "$HOME/work"
+cd "$HOME/shingi-root"
 check "the working root: no unit" 1 '.error.details.reason == "no-unit"' -- where
-cd "$HOME/work/scratch"
+cd "$HOME/shingi-root/scratch"
 check "a plain folder: no unit" 1 '.error.details.reason == "no-unit"' -- where
 cd "$HOME"
 check "outside the working root" 1 '.error.details.reason == "outside-root"' -- where
@@ -158,7 +156,7 @@ check "the unit, as where" 0 '.result.unit == ('"$("$SHINGI" where HOME-1/a | jq
 check "its ancestors" 0 '.result.ancestors == [{path: "HOME-1", id: .result.ancestors[0].id, kind: "group", title: "Payment retries"}]' -- context HOME-1/a
 check "its and its parent's notes" 0 '.result.notes == "# a\n" and .result.parent_notes == "# Payment retries\n"' -- context HOME-1/a
 check "its open tasks, start task first" 0 '[.result.tasks[] | .tags[1]] == ["shingi-start", "shingi-done"]' -- context HOME-1/a
-cd "$HOME/work/HOME-1/a"
+cd "$HOME/shingi-root/HOME-1/a"
 check "from its working folder" 0 '.result.unit.path == "HOME-1/a"' -- context
 cd "$HOME"
 check "a top-level unit" 0 '.result.ancestors == [] and .result.parent_notes == null' -- context HOME-1
@@ -168,21 +166,21 @@ check "every unit, in path order" 0 '[.result.units[].path] == ["HOME-1", "HOME-
 check "states" 0 '[.result.units[].state] == ["started", "not-started", "not-started", "not-started"]' -- list
 check "one subtree" 0 '.result.root == "HOME-1" and [.result.units[].path] == ["HOME-1", "HOME-1/a", "HOME-1/b"]' -- list HOME-1
 check "list and where agree" 0 '.result.units[1] == ('"$("$SHINGI" where HOME-1/a | jq -c .result)"')' -- list
-rm -rf "$HOME/work/HOME-2"
-check "a removed unit's tasks are orphans" 0 '[.result.units[].path] == ["HOME-1", "HOME-1/a", "HOME-1/b"] and [.warnings[] | .kind, .details.folder] == ["orphan-task", "/work/HOME-2", "orphan-task", "/work/HOME-2"]' -- list
+rm -rf "$HOME/shingi-root/HOME-2"
+check "a removed unit's tasks are orphans" 0 '[.result.units[].path] == ["HOME-1", "HOME-1/a", "HOME-1/b"] and [.warnings[] | .kind, .details.folder] == ["orphan-task", "/shingi/HOME-2", "orphan-task", "/shingi/HOME-2"]' -- list
 check "list of a unit that isn't one" 1 '.error.kind == "not-found"' -- list HOME-2
 
 echo "== a broken manifest"
-cp "$HOME/work/HOME-1/b/uow.json" "$tmp/b.json"
-echo '{' >"$HOME/work/HOME-1/b/uow.json"
+cp "$HOME/shingi-root/HOME-1/b/uow.json" "$tmp/b.json"
+echo '{' >"$HOME/shingi-root/HOME-1/b/uow.json"
 check "where warns and reports what it can" 0 '.result | .id == null and .kind == null and .state == null and .title == "b"' -- where HOME-1/b
-check "the warning" 0 '.warnings == [{kind: "unsupported-manifest", message: .warnings[0].message, unit: "HOME-1/b", ids: [], details: {path: "'"$HOME"'/work/HOME-1/b/uow.json", reason: "corrupt"}}]' -- where HOME-1/b
+check "the warning" 0 '.warnings == [{kind: "unsupported-manifest", message: .warnings[0].message, unit: "HOME-1/b", ids: [], details: {path: "'"$HOME"'/shingi-root/HOME-1/b/uow.json", reason: "corrupt"}}]' -- where HOME-1/b
 check "a child's kind is null" 0 '.result.children[1] == {path: "HOME-1/b", kind: null} and .warnings == []' -- where HOME-1
 check "list goes on past it" 0 '[.result.units[].path] == ["HOME-1", "HOME-1/a", "HOME-1/b"] and [.warnings[].kind] == ["orphan-task", "orphan-task", "unsupported-manifest"]' -- list HOME-1
-echo '{"schema": 2, "id": "x", "kind": "group"}' >"$HOME/work/HOME-1/b/uow.json"
+echo '{"schema": 2, "id": "x", "kind": "group"}' >"$HOME/shingi-root/HOME-1/b/uow.json"
 check "a newer schema" 0 '.warnings[0].details.reason == "unsupported-format"' -- where HOME-1/b
 check "create under it leaves both links out" 0 '[.warnings[] | .kind, .details.role] == ["parent-unlinked", "start", "parent-unlinked", "done"]' -- create HOME-1/b/x group
-cp "$tmp/b.json" "$HOME/work/HOME-1/b/uow.json"
+cp "$tmp/b.json" "$HOME/shingi-root/HOME-1/b/uow.json"
 check "fixed" 0 '.result.kind == "branch" and .warnings == []' -- where HOME-1/b
 
 echo "== an undefined kind"
@@ -205,24 +203,24 @@ check "a late child warns parent-done" 0 '.warnings == [{kind: "parent-done", me
 expect "the parent's done task is left alone" '[[ $("$KOAN" show '"$d4_done"' | jq -c .result.task.blocked_by) == "[$d4_start]" ]]'
 
 echo "== adopting a folder"
-mkdir -p "$HOME/work/HOME-5/drafts"
-echo 'the plan' >"$HOME/work/HOME-5/drafts/plan.txt"
-printf '# What I had\n\nnotes\n' >"$HOME/work/HOME-5/uow.md"
+mkdir -p "$HOME/shingi-root/HOME-5/drafts"
+echo 'the plan' >"$HOME/shingi-root/HOME-5/drafts/plan.txt"
+printf '# What I had\n\nnotes\n' >"$HOME/shingi-root/HOME-5/uow.md"
 check "create refuses an existing folder" 1 '.error.details == {entry: "HOME-5", type: "folder"}' -- create HOME-5 group
 check "adopt keeps its notes, quietly" 0 '.result.unit | .title == "What I had" and .state == "not-started"' -- adopt HOME-5 group --title 'Ignored'
 check "no warnings" 0 '.warnings == []' -- where HOME-5
-expect "contents untouched" '[[ $(cat "$HOME/work/HOME-5/drafts/plan.txt") == "the plan" && $(head -1 "$HOME/work/HOME-5/uow.md") == "# What I had" ]]'
-mkdir "$HOME/work/HOME-5/spike"
+expect "contents untouched" '[[ $(cat "$HOME/shingi-root/HOME-5/drafts/plan.txt") == "the plan" && $(head -1 "$HOME/shingi-root/HOME-5/uow.md") == "# What I had" ]]'
+mkdir "$HOME/shingi-root/HOME-5/spike"
 check "a child folder without notes gets a title" 0 '.result.unit | .title == "foo: spike" and .parent == "HOME-5"' -- adopt HOME-5/spike branch --title 'foo: spike'
 check "adopt again: unit-exists" 1 '.error.kind == "unit-exists"' -- adopt HOME-5 group
 check "adopt a missing folder" 1 '.error.details.reason == "no-folder"' -- adopt HOME-6 group
 check "adopt in another case" 1 '.error.details == {entry: "HOME-5", type: "unit"}' -- adopt home-5 group
 
 echo "== missing tasks"
-cp -r "$HOME/work/HOME-1/a" "$HOME/work/HOME-1/copy"
+cp -r "$HOME/shingi-root/HOME-1/a" "$HOME/shingi-root/HOME-1/copy"
 check "a copied unit has no tasks of its own" 0 '.result | .start == null and .done == null and .state == null' -- where HOME-1/copy
 check "warned per role" 0 '[.warnings[] | .kind, .details.role] == ["missing-task", "start", "missing-task", "done"]' -- where HOME-1/copy
-rm -rf "$HOME/work/HOME-1/copy"
+rm -rf "$HOME/shingi-root/HOME-1/copy"
 
 echo "== koan failing"
 mkdir -p "$tmp/badbin"
@@ -231,7 +229,7 @@ PATH=$tmp/badbin:$PATH check "where still reports the unit" 0 '.result | .path =
 PATH=$tmp/badbin:$PATH check "with koan-failed" 0 '.warnings == [{kind: "koan-failed", message: .warnings[0].message, unit: "HOME-1/a", ids: [], details: {call: "list", exit: 5, error: null}}]' -- where HOME-1/a
 PATH=$tmp/badbin:$PATH check "list: one koan-failed, no orphans" 0 '[.warnings[].kind] == ["koan-failed"] and all(.result.units[]; .state == null)' -- list HOME-1
 PATH=$tmp/badbin:$PATH check "create: an error, nothing made" 1 '.error.kind == "koan-failed" and (.error | has("partial") | not)' -- create HOME-1/c group
-expect "nothing made" '[[ ! -e $HOME/work/HOME-1/c ]]'
+expect "nothing made" '[[ ! -e $HOME/shingi-root/HOME-1/c ]]'
 
 echo "== finishing"
 koan done "$(jq .result.start.id <<<"$("$SHINGI" where HOME-1/a)")"

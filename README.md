@@ -15,16 +15,24 @@ pipx install git+https://github.com/phansen314/shingi
 
 Both put `shingi` in `~/.local/bin`, which must be on `PATH` (`uv tool update-shell` or `pipx ensurepath`). shingi is pinned to the Python it was installed with: if that Python goes away, reinstall (`uv tool install --reinstall …`, `pipx reinstall shingi`).
 
-### The rules file
+### Where things live
 
-shingi reads its roots and kinds from `shingi.toml` in its config directory: `$XDG_CONFIG_HOME/shingi`, or `~/.config/shingi`, on Linux; `~/Library/Application Support/shingi` on macOS. There is no `init`; write it by hand, for example:
+Nothing needs setting up. The tree is always in the same two places, and the first `shingi create` makes both:
+
+- **`~/shingi-root`:** each unit's working folder, with its `uow.json`, its `uow.md`, and whatever else you keep there. To keep the tree somewhere else, make `~/shingi-root` a symlink to it first.
+- **`/shingi` in koan:** each unit's tasks.
+
+### Kinds
+
+A unit's kind is a label for what it is. Two are built in:
+
+- **`group`:** work gathered under one name: a project, a story, an epic, a research phase.
+- **`branch`:** work on one branch of one repository.
+
+To define your own, write `shingi.toml` in shingi's config directory: `$XDG_CONFIG_HOME/shingi`, or `~/.config/shingi`, on Linux; `~/Library/Application Support/shingi` on macOS. It replaces the built-in two, so copy them in to keep them:
 
 ```toml
 schema = 1
-
-[roots]
-koan    = "/work"      # a koan folder only shingi uses
-working = "~/work"     # must already exist
 
 [kind.group]
 description = "Work gathered under one name: a project, a story, an epic, a research phase."
@@ -33,9 +41,12 @@ suggests    = ["group", "branch"]
 [kind.branch]
 description = "Work on one branch of one repository."
 suggests    = []
+
+[kind.spike]
+description = "A throwaway experiment."
 ```
 
-`shingi kinds` reads it and nothing else, so it is the quick check. See [The rules file](design-spec.md#the-rules-file) for every field.
+`shingi kinds` shows the kinds in effect. See [The rules file](design-spec.md#the-rules-file) for every field.
 
 ## Use it from Claude Code and OpenCode
 
@@ -90,7 +101,7 @@ OpenCode, in `~/.config/opencode/opencode.json` (the script leaves an `opencode.
 
 For OpenCode, link the skill too: `ln -s "$PWD/claude/skills/shingi" ~/.config/opencode/skills/shingi` from the clone. Not in `~/.claude/skills`: OpenCode reads that as well, and Claude Code would load the skill a second time next to the plugin's.
 
-OpenCode also asks before its file tools touch anything outside the project, which includes a unit's notes, `uow.md`. To let it read and edit notes without asking, add your working root, for example `"external_directory": { "~/work/*": "allow" }` under `"permission"`.
+OpenCode also asks before its file tools touch anything outside the project, which includes a unit's notes, `uow.md`. To let it read and edit notes without asking, add `"external_directory": { "~/shingi-root/*": "allow" }` under `"permission"`.
 
 ## Specs
 

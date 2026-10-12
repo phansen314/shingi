@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from shingi.envelope import OperationError
-from shingi.units import NAME
 
 
 @dataclass
@@ -28,11 +27,30 @@ def default_path():
     return base / "shingi" / "shingi.toml"
 
 
-KOAN_FOLDER = re.compile(rf"(?:/{NAME})+")
+KOAN_ROOT = "/shingi"
 KIND_NAME = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?")
-FIELDS = {"schema", "roots", "kind"}
-ROOTS = {"koan", "working"}
+FIELDS = {"schema", "kind"}
 KIND = {"description", "suggests"}
+
+# The kinds when there is no rules file (design-spec.md, The built-in kinds).
+BUILT_IN_KINDS = {
+    "group": {
+        "description": "Work gathered under one name: a project, a story, an epic, a research phase.",
+        "suggests": ["group", "branch"],
+    },
+    "branch": {"description": "Work on one branch of one repository.", "suggests": []},
+}
+
+
+def working_root():
+    """~/shingi-root as its real path, which may not exist yet (operations.md, The roots)."""
+    root = (Path.home() / "shingi-root").resolve()
+    if root.exists():
+        try:
+            os.listdir(root)
+        except OSError as exc:
+            raise OperationError("io", f"{root}: {exc.strerror}", {"path": str(root), "code": errno.errorcode.get(exc.errno)})
+    return root
 
 
 def invalid(path, reason, message, problems=(), code=None):
@@ -43,13 +61,16 @@ def invalid(path, reason, message, problems=(), code=None):
 
 
 def load(config=None):
-    """Read and check the rules file (operations.md, Reading the rules)."""
+    """The rules: `config`'s file, or shingi.toml, checked, or with neither the built-in kinds
+    (operations.md, Reading the rules)."""
     path = Path(config).absolute() if config is not None else default_path()
     try:
         with open(path, "rb") as f:
             data = tomllib.loads(f.read().decode("utf-8"))
     except FileNotFoundError:
-        raise invalid(path, "missing", f"no rules file at {path}; see \"The rules file\" in shingi's README for an example")
+        if config is None:
+            return Rules(koan_root=KOAN_ROOT, working_root=working_root(), kinds=BUILT_IN_KINDS)
+        raise invalid(path, "missing", f"no rules file at {path}")
     except OSError as exc:
         raise invalid(path, "unreadable", f"{path}: {exc.strerror}", code=errno.errorcode.get(exc.errno))
     except UnicodeDecodeError:
@@ -68,23 +89,6 @@ def load(config=None):
         )
 
     problems = unknown(data, FIELDS, "")
-    roots = data.get("roots")
-    koan_root = working = None
-    if not isinstance(roots, dict):
-        problems.append(problem("roots", "required: a table"))
-    else:
-        problems += unknown(roots, ROOTS, "roots.")
-        koan_root = roots.get("koan")
-        if not isinstance(koan_root, str) or not KOAN_FOLDER.fullmatch(koan_root):
-            problems.append(problem("roots.koan", "required: a koan folder path other than /, such as /work"))
-        working = roots.get("working")
-        if not isinstance(working, str):
-            problems.append(problem("roots.working", "required: a string"))
-        else:
-            working = Path(os.path.expanduser(working)) if working.startswith("~/") else Path(working)
-            if not working.is_absolute() or not working.is_dir():
-                problems.append(problem("roots.working", "must be an existing absolute directory"))
-
     kinds = data.get("kind")
     if not isinstance(kinds, dict) or not kinds:
         problems.append(problem("kind", "at least one kind is required"))
@@ -110,7 +114,7 @@ def load(config=None):
         raise invalid(path, "invalid", f"{path}: invalid rules: " + "; ".join(
             f"{p['field']}: {p['reason']}" for p in sorted(problems, key=lambda p: p["field"])
         ), problems)
-    return Rules(koan_root=koan_root, working_root=working.resolve(), kinds=kinds)
+    return Rules(koan_root=KOAN_ROOT, working_root=working_root(), kinds=kinds)
 
 
 def is_int(value):

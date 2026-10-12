@@ -16,7 +16,7 @@ class NestingTest(ShingiTestCase):
 
         for child in (a, b):
             self.assertEqual(child["parent"], "HOME-1")
-            self.assertEqual(child["koan_folder"], "/work/HOME-1/" + child["path"].split("/")[-1])
+            self.assertEqual(child["koan_folder"], "/shingi/HOME-1/" + child["path"].split("/")[-1])
             self.assertEqual(self.koan_show(child["start"]["id"])["blocked_by"], [parent["start"]["id"]])
             self.assertEqual(self.koan_show(child["done"]["id"])["blocked_by"], [child["start"]["id"]])
         self.assertEqual(

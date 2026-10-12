@@ -10,7 +10,7 @@ class UndefinedKindTest(ShingiTestCase):
             status, out = self.shingi("create", path, kind)
             self.assertEqual(status, 0, out)
         # Remove the branch kind from the rules.
-        rules = RULES.format(working=self.working).split("[kind.branch]")[0]
+        rules = RULES.split("[kind.branch]")[0]
         self.config.write_text(rules.replace('"group", "branch"', '"group"'))
 
     def test_where_warns_and_reports_the_unit_as_usual(self):

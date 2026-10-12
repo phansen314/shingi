@@ -11,10 +11,6 @@ from pathlib import Path
 RULES = """\
 schema = 1
 
-[roots]
-koan    = "/work"
-working = "{working}"
-
 [kind.group]
 description = "Work gathered under one name."
 suggests    = ["group", "branch"]
@@ -68,10 +64,10 @@ class ShingiTestCase(unittest.TestCase):
     def setUp(self):
         tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, tmp)
-        self.working = tmp / "working"
+        self.working = tmp / "shingi-root"
         self.working.mkdir()
         self.config = tmp / "shingi.toml"
-        self.config.write_text(RULES.format(working=self.working))
+        self.config.write_text(RULES)
         self.env = {**os.environ, "HOME": str(tmp), "XDG_CONFIG_HOME": str(tmp / "config")}
         self.koan("init")
 

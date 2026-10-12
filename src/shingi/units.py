@@ -65,7 +65,8 @@ def resolve(rules, path):
     segments = path.split("/")
     for i, segment in enumerate(segments):
         folder = folder / segment
-        exact = segment in os.listdir(folder.parent)
+        # The working root may not exist yet: then nothing is a unit.
+        exact = folder.parent.is_dir() and segment in os.listdir(folder.parent)
         if not (exact and folder.is_dir() and (folder / MANIFEST).is_file()):
             missing = "/".join(segments[: i + 1])
             raise OperationError(
@@ -185,7 +186,9 @@ def read_title(folder):
 
 
 def child_folders(folder):
-    """The unit folders directly in `folder`, in path order."""
+    """The unit folders directly in `folder`, in path order: none in a working root not yet made."""
+    if not folder.exists():
+        return []
     return [
         entry for entry in sorted(folder.iterdir(), key=lambda e: e.name.encode())
         if not entry.name.startswith(".") and (entry / MANIFEST).is_file()

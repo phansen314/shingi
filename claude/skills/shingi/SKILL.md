@@ -5,7 +5,7 @@ description: Find, create, and coordinate units of work with the shingi CLI — 
 
 # shingi
 
-`shingi` gives every piece of work one name and one place. A **unit** is a node in a hierarchy — a Jira story, the branches it is split into, a group of related work, a long-lived project — named by its **path**: `HOME-12345/foo-split/1-schema`. The same path names its tasks in koan (its **koan folder**, under the koan root, e.g. `/work/HOME-12345/foo-split/1-schema`) and its **working folder** on disk (under the working root, e.g. `~/work/HOME-12345/foo-split/1-schema`). Every command prints **one line of JSON** and nothing else.
+`shingi` gives every piece of work one name and one place. A **unit** is a node in a hierarchy — a Jira story, the branches it is split into, a group of related work, a long-lived project — named by its **path**: `HOME-12345/foo-split/1-schema`. The same path names its tasks in koan (its **koan folder**, `/shingi/HOME-12345/foo-split/1-schema`) and its **working folder** on disk (`~/shingi-root/HOME-12345/foo-split/1-schema`). Every command prints **one line of JSON** and nothing else.
 
 Each unit's working folder holds two files: `uow.json`, its manifest (shingi's; never edit it), and `uow.md`, its notes (everyone's). Each unit has a **start task** and a **done task** in koan; its progress is theirs, never stored.
 
@@ -16,7 +16,7 @@ shingi version
 shingi kinds
 ```
 
-`kinds` failing with `invalid-rules` (`.error.details.reason: "missing"`) means shingi isn't set up on this machine: tell the user it needs `shingi.toml` in its config directory (`~/.config/shingi/` on Linux, `~/Library/Application Support/shingi/` on macOS), naming a koan root, a working root, and the kinds, as in the README. **Never write or change `shingi.toml` unasked**; it is the user's. shingi also needs koan, set up and on `PATH`.
+The tree is always in the same two places: units' working folders under `~/shingi-root`, and their tasks under the koan folder `/shingi`. Nothing needs setting up: the first `create` makes both. The kinds are `group` and `branch` unless the user has written a `shingi.toml` (in `~/.config/shingi/` on Linux, `~/Library/Application Support/shingi/` on macOS) defining their own. **Never write or change `shingi.toml` unasked**; it is the user's. shingi also needs koan, set up and on `PATH`.
 
 ## Reading output
 
@@ -42,7 +42,7 @@ Error kinds worth handling:
 - `name-taken` — something is already at the name (`.error.details.entry`, `.type`): a folder, a file, or a name differing only in case. A folder of existing work is made a unit with `adopt`, not `create`.
 - `unit-exists` — it's already a unit: `shingi where` it.
 - `unknown-kind` — `.error.details.defined` lists the kinds there are.
-- `invalid-rules`, `unsupported-format` — `shingi.toml` is missing or wrong; report `.error.message` to the user.
+- `invalid-rules`, `unsupported-format` — the user's `shingi.toml` is wrong; report `.error.message` to the user.
 - `koan-failed` — koan failed; `.error.details.error` is koan's own error. See [When create fails](#when-create-or-adopt-fails).
 - `io`, `internal` — stop and report to the user, quoting `.error.message`.
 
@@ -57,7 +57,7 @@ shingi where HOME-12345/foo-split/1-schema      # a unit by its path
 
 `where` returns the unit: `path`, `id`, `kind`, `title`, `state` (`not-started`, `started`, `done`), `parent`, `children` (`{path, kind}`), `koan_folder`, `working_folder`, `notes_path`, and `start` and `done`, its two koan tasks (`id`, `readiness`, `created_at`, `completed_at`). Every filesystem path is absolute.
 
-- With no path, `where` works from anywhere in a unit's working folder, working material included. It does **not** work from a worktree: code lives outside the working root. A unit's notes say where its code is (below).
+- With no path, `where` works from anywhere in a unit's working folder, working material included. It does **not** work from a worktree: code lives outside the working root, `~/shingi-root`. A unit's notes say where its code is (below).
 - **Read the unit's `uow.md` (`notes_path`)** for what it is for, what was decided, and where its code is.
 
 **To start work on a unit, run `shingi context`** (with its path, or from its working folder): one call for everything you need to begin:
@@ -100,7 +100,7 @@ shingi create HOME-12345/foo-split/1-schema branch --title 'foo: schema changes'
 **Existing work:** a folder that already holds work (drafts, notes) becomes a unit with `adopt`, which keeps everything in it, its `uow.md` included:
 
 ```sh
-shingi adopt HOME-12345 group              # ~/work/HOME-12345 already exists
+shingi adopt HOME-12345 group              # ~/shingi-root/HOME-12345 already exists
 shingi adopt HOME-12345/spike branch --title 'foo: spike'   # --title only used if there's no uow.md
 ```
 
@@ -207,4 +207,4 @@ There are no commands for these yet. **Only with the user's go-ahead**, naming w
 - **Never compose a unit's koan folder or working folder** from the roots and the path: ask `shingi where`.
 - **Don't create or adopt units the user didn't ask for**; propose them. Both ask for permission anyway.
 - **Never mark a start task done unless asked to begin that unit, nor a parent's done task unless the user agrees to close it.**
-- **Don't put anything under the working root but units and their working material**: never a repository checkout. Code lives in worktrees elsewhere, named in `## Code`.
+- **Don't put anything under `~/shingi-root` but units and their working material**: never a repository checkout. Code lives in worktrees elsewhere, named in `## Code`.

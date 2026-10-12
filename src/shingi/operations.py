@@ -263,6 +263,8 @@ def write_unit(rules, inp, path, kind, unit_id, adopting, parent, parent_start, 
     folder = units.working_folder(rules, path)
     if not adopting:
         try:
+            if "/" not in path:
+                rules.working_root.mkdir(parents=True, exist_ok=True)
             folder.mkdir()
         except FileExistsError:
             raise name_taken(path, folder.name, entry_type(folder))
@@ -311,7 +313,8 @@ def check_entry(folder, path, adopting):
     name = folder.name
     if (folder / units.MANIFEST).is_file():
         raise OperationError("unit-exists", f"{path} already exists", {"manifest": str(folder / units.MANIFEST)})
-    for entry in sorted(folder.parent.iterdir(), key=lambda e: e.name.encode()):
+    siblings = folder.parent.iterdir() if folder.parent.exists() else []  # no working root yet
+    for entry in sorted(siblings, key=lambda e: e.name.encode()):
         if entry.name.encode().lower() != name.encode().lower():  # ASCII case only
             continue
         # Only adopt may find something at the name: a folder with exactly it.

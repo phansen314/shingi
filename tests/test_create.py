@@ -22,7 +22,7 @@ class CreateTest(ShingiTestCase):
         self.assertEqual(unit["state"], "not-started")
         self.assertIsNone(unit["parent"])
         self.assertEqual(unit["children"], [])
-        self.assertEqual(unit["koan_folder"], "/work/HOME-1")
+        self.assertEqual(unit["koan_folder"], "/shingi/HOME-1")
         self.assertEqual(unit["working_folder"], str(folder))
         self.assertEqual(unit["notes_path"], str(folder / "uow.md"))
         self.assertEqual(unit["start"]["readiness"], "ready")

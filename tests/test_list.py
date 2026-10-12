@@ -60,7 +60,7 @@ class ListTest(ShingiTestCase):
         self.assertEqual([w["ids"] for w in out["warnings"]], [[unit["start"]["id"]], [unit["done"]["id"]]])
         self.assertEqual(
             out["warnings"][0]["details"],
-            {"folder": "/work/HOME-1", "source": "shingi-start", "shingi_unit": unit["id"]},
+            {"folder": "/shingi/HOME-1", "source": "shingi-start", "shingi_unit": unit["id"]},
         )
         self.assertIsNone(out["warnings"][0]["unit"])
 
