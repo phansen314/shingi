@@ -180,6 +180,31 @@ koan frontier --folder <koan folder> --tags-all shingi-done --limit 20 --fields 
 - marks no task tagged `shingi` but its own unit's done task, and that only when asked to finish the unit;
 - records what it decides and learns in its unit's `uow.md`.
 
+### Sessions and units
+
+When sessions are started with sesshin, **tag each one with its unit's path, in its `extra`, under `shingi-path`.** The tag is the link between a session and a unit; the job name is only a short handle.
+
+```sh
+sesshin spawn --job 1-schema --extra '{"shingi-path":"HOME-12345/foo-split/1-schema"}' \
+  --cwd <the worktree, from the unit's notes> \
+  --prompt 'Run shingi context HOME-12345/foo-split/1-schema, then do its next task.'
+```
+
+- **Never use the path as the job.** A job can't hold `/`, must be unique among live sessions, and a unit may have several sessions (a worker and a reviewer).
+- **The job is the unit's name,** its last segment, when sesshin will take it. Leave `--job` out, and use the sesshin ID it returns, when the name is all digits (`12345` always means a sesshin ID) or the spawn fails `job-taken` (two units share a name, or the unit already has a session).
+- **Still put the path in the prompt.** The tag is for finding sessions; the prompt is what the worker reads.
+- **A unit's sessions**, live ones:
+
+  ```sh
+  sesshin list --fields job,status,extra | jq -c '.result.sessions[] | select(.extra["shingi-path"] == "HOME-12345/foo-split/1-schema")'
+  ```
+
+  Every session under a unit: `select((.extra["shingi-path"] // "") | startswith("HOME-12345/"))`.
+- **A session that doesn't know its unit** asks sesshin: `sesshin show self | jq -r '.result.session.extra["shingi-path"] // empty'`, then `shingi context` on what that prints. Nothing printed means it was never tagged: ask the user.
+- **Tag a session started by hand,** or one that moves to another unit, from inside it: `sesshin update self --extra-merge '{"shingi-path":"HOME-12345/research"}'`.
+
+The key is `shingi-path`, never `shingi-unit`: on a koan task, `shingi-unit` is the unit's `id`, a different thing.
+
 ## When create or adopt fails
 
 `create` and `adopt` never resume. An error with **`.error.partial`** stopped after making something, before the unit existed; `partial` lists what was made: `koan_folders`, `tasks`, `blocked` (the blocker added to the parent's done task), `files`. **Undo it, then run the command again**:
