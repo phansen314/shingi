@@ -73,8 +73,8 @@ class ShingiTestCase(unittest.TestCase):
         self.working.mkdir()
         self.config = tmp / "shingi.toml"
         self.config.write_text(RULES.format(working=self.working))
-        self.env = {**os.environ, "XDG_CONFIG_HOME": str(tmp / "config")}
-        self.koan("init", str(tmp / "tree"))
+        self.env = {**os.environ, "HOME": str(tmp), "XDG_CONFIG_HOME": str(tmp / "config")}
+        self.koan("init")
 
     def shingi(self, *args, cwd=None, stdin=b""):
         """Run shingi; return its exit status and envelope."""
@@ -101,4 +101,4 @@ class ShingiTestCase(unittest.TestCase):
             self.env[f"FAKE_KOAN_{call.upper()}"] = str(mode)
 
     def koan_show(self, task_id):
-        return self.koan("show", str(task_id))["tasks"][0]
+        return self.koan("show", str(task_id))["task"]

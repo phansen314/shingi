@@ -58,9 +58,7 @@ def list_tasks(folder, recursive, tags=("shingi",)):
     if envelope["ok"]:
         return envelope["result"]["tasks"], warnings
     error = envelope["error"]
-    if error["kind"] == "not-found" and any(
-        folder == f or folder.startswith(f + "/") for f in error["details"].get("folders", [])
-    ):
+    if error["kind"] == "not-found" and folder in error["folders"]:
         return [], warnings
     raise failed("list", 1, error, f"koan list failed: {error['message']}", warnings)
 

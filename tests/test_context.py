@@ -49,8 +49,8 @@ class ContextTest(ShingiTestCase):
     def test_its_open_tasks_only_its_own(self):
         unit = self.units["HOME-1/foo-split/1-schema"]
         folder = unit["koan_folder"]
-        work = self.koan("create", "Schema changes", "--folder", folder, "--blocked-by", str(unit["start"]["id"]))
-        finished = self.koan("create", "Already done", "--folder", folder)
+        work = self.koan("create", "Schema changes", "--folder", folder, "--blocked-by", str(unit["start"]["id"]))["task"]
+        finished = self.koan("create", "Already done", "--folder", folder)["task"]
         self.koan("done", str(finished["id"]))
         out = self.context("HOME-1/foo-split/1-schema")
         tasks = out["result"]["tasks"]

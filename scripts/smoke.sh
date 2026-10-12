@@ -77,7 +77,7 @@ expect "--help" '[[ $("$SHINGI" --help) == "Usage: shingi <command>"* ]]'
 expect "unwritable stdout is exit 3" '(exec 1>&-; "$SHINGI" version 2>/dev/null); [[ $? == 3 ]]'
 
 echo "== rules"
-koan init '~/tasks'
+koan init
 mkdir -p "$HOME/work" "$XDG_CONFIG_HOME/shingi"
 printf 'schema = 1\n[roots]\nkoan = "/work"\nworking = "~/work"\n[kind.group]\nsugests = []\n' >"$XDG_CONFIG_HOME/shingi/shingi.toml"
 check "a typo in the rules" 1 '.error.details.problems == [{field: "kind.group.sugests", reason: "unknown field"}]' -- kinds
@@ -134,7 +134,7 @@ check "child b" 0 '.result.unit.parent == "HOME-1"' -- create HOME-1/b branch
 b_done=$(jq .result.unit.done.id <<<"$out")
 check "the parent knows its children" 0 '.result.children == [{path: "HOME-1/a", kind: "branch"}, {path: "HOME-1/b", kind: "branch"}]' -- where HOME-1
 expect "the parent's done task waits on both" \
-	'[[ $("$KOAN" show '"$p_done"' | jq -c .result.tasks[0].blocked_by) == "[$p_start,$a_done,$b_done]" ]]'
+	'[[ $("$KOAN" show '"$p_done"' | jq -c .result.task.blocked_by) == "[$p_start,$a_done,$b_done]" ]]'
 koan done "$p_start"
 check "parent started" 0 '.result.state == "started"' -- where HOME-1
 check "a child is ready once its parent starts" 0 '.result.start.readiness == "ready"' -- where HOME-1/a
@@ -202,7 +202,7 @@ d4_done=$(jq .result.unit.done.id <<<"$out")
 koan done "$d4_start"
 koan done "$d4_done"
 check "a late child warns parent-done" 0 '.warnings == [{kind: "parent-done", message: .warnings[0].message, unit: "HOME-4/late", ids: ['"$d4_done"'], details: {parent: "HOME-4"}}]' -- create HOME-4/late group
-expect "the parent's done task is left alone" '[[ $("$KOAN" show '"$d4_done"' | jq -c .result.tasks[0].blocked_by) == "[$d4_start]" ]]'
+expect "the parent's done task is left alone" '[[ $("$KOAN" show '"$d4_done"' | jq -c .result.task.blocked_by) == "[$d4_start]" ]]'
 
 echo "== adopting a folder"
 mkdir -p "$HOME/work/HOME-5/drafts"
