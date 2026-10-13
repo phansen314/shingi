@@ -189,6 +189,11 @@ class HooksTest(ShingiTestCase):
         self.assertTrue(envelope["warnings"])
         self.assertEqual(json.loads(out.read_text())["warnings"], envelope["warnings"])
 
+    def test_a_hooks_stdin_is_a_file_not_a_pipe(self):
+        self.write_hooks(create=[{"command": "[ -f /dev/stdin ] || exit 9"}])
+        status, envelope = self.shingi("create", "HOME-1", "group")
+        self.assertEqual((status, envelope["warnings"]), (0, []))
+
     def test_two_hooks_each_read_the_whole_payload(self):
         first, first_out = self.recorder()
         second, second_out = self.recorder()
@@ -366,6 +371,16 @@ class EventsTest(ShingiTestCase):
         self.assertEqual(self.shingi("adopt", "HOME-1", "group")[1]["error"]["kind"], "not-found")
         self.assertEqual(self.shingi("delete", "HOME-1")[1]["error"]["kind"], "not-found")
         self.assertEqual(self.fired(), [])
+
+    def test_delete_puts_its_own_warnings_in_the_payload_and_the_hooks_after_them_in_order(self):
+        command, out = self.recorder()
+        self.shingi("create", "HOME-1", "group")
+        self.fake_koan(delete_folder="warn")
+        self.write_hooks(delete=[{"command": "exit 1"}, {"command": command}])
+        status, envelope = self.shingi("delete", "HOME-1")
+        self.assertEqual(status, 0, envelope)
+        self.assertEqual([w["kind"] for w in envelope["warnings"]], ["hook-failed", "koan-warning"])
+        self.assertEqual(json.loads(out.read_text())["warnings"], [envelope["warnings"][1]])
 
     def test_a_failing_delete_hook_warns_for_the_deleted_unit(self):
         self.write_hooks(delete=[{"command": "exit 5"}])
