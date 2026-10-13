@@ -168,6 +168,7 @@ def delete(inp, config):
     """Make a unit a plain folder again: remove its koan folder, then its manifest."""
     inputs.check("delete", inp)
     rules = rules_file.load(config)
+    loaded = hooks.load()
     path = inp["unit"]
     units.check_path(path)
     units.resolve(rules, path)
@@ -185,19 +186,22 @@ def delete(inp, config):
         error = io_error(exc, manifest)
         error.warnings = warnings
         raise error
-    return {
+    result = {
         "path": path,
         "koan_folder": kfolder,
         "working_folder": str(folder),
         "tasks": sorted(removed["deleted"]) if removed else [],
         "unblocked": sorted(removed["dependents"]) if removed else [],
-    }, warnings
+    }
+    warnings = units.sort_warnings(warnings)
+    warnings = units.sort_warnings(warnings + hooks.run(loaded, "delete", inp, result, warnings, unit=path))
+    return result, warnings
 
 
 def make_unit(inp, config, adopting):
     """create, or with `adopting`, adopt: they differ only in the working folder."""
     rules = rules_file.load(config)
-    loaded = None if adopting else hooks.load()  # slice 1: create only
+    loaded = hooks.load()
     path, kind = inp["path"], inp["kind"]
     units.check_path(path, creating=True)
     if kind not in rules.kinds:
@@ -244,8 +248,8 @@ def make_unit(inp, config, adopting):
     unit, read_warnings = units.read_unit(rules, path)
     result = {"unit": unit}
     warnings = units.sort_warnings(warnings + read_warnings)
-    if not adopting:
-        warnings = units.sort_warnings(warnings + hooks.run(loaded, "create", inp, result, warnings, unit=path))
+    event = "adopt" if adopting else "create"
+    warnings = units.sort_warnings(warnings + hooks.run(loaded, event, inp, result, warnings, unit=path))
     return result, warnings
 
 

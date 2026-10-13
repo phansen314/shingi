@@ -309,5 +309,108 @@ class TimeoutTest(ShingiTestCase):
         ])
 
 
+class EventsTest(ShingiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.created, self.created_out = self.recorder()
+        self.adopted, self.adopted_out = self.recorder()
+        self.deleted, self.deleted_out = self.recorder()
+        self.write_hooks(
+            create=[{"command": self.created}], adopt=[{"command": self.adopted}], delete=[{"command": self.deleted}],
+        )
+
+    def fired(self):
+        return sorted(out.name for out in (self.created_out, self.adopted_out, self.deleted_out) if out.exists())
+
+    def test_adopt_fires_its_own_event(self):
+        (self.working / "HOME-1").mkdir()
+        status, envelope = self.shingi("adopt", "HOME-1", "group", "--title", "T")
+        self.assertEqual(status, 0, envelope)
+        payload = json.loads(self.adopted_out.read_text())
+        self.assertEqual(payload["event"], "adopt")
+        self.assertEqual(payload["input"], {"path": "HOME-1", "kind": "group", "title": "T"})
+        self.assertEqual(payload["result"], envelope["result"])
+        self.assertEqual(self.fired(), [self.adopted_out.name])
+
+    def test_delete_fires_its_own_event(self):
+        self.shingi("create", "HOME-1", "group")
+        self.created_out.unlink()
+        status, envelope = self.shingi("delete", "HOME-1")
+        self.assertEqual(status, 0, envelope)
+        payload = json.loads(self.deleted_out.read_text())
+        self.assertEqual(payload["event"], "delete")
+        self.assertEqual(payload["input"], {"unit": "HOME-1"})
+        self.assertEqual(payload["result"], envelope["result"])
+        self.assertEqual(payload["warnings"], [])
+        self.assertEqual(self.fired(), [self.deleted_out.name])
+
+    def test_create_fires_only_create(self):
+        self.shingi("create", "HOME-1", "group")
+        self.assertEqual(self.fired(), [self.created_out.name])
+
+    def test_a_failed_adopt_or_delete_fires_nothing(self):
+        self.assertEqual(self.shingi("adopt", "HOME-1", "group")[1]["error"]["kind"], "not-found")
+        self.assertEqual(self.shingi("delete", "HOME-1")[1]["error"]["kind"], "not-found")
+        self.assertEqual(self.fired(), [])
+
+    def test_a_failing_delete_hook_warns_for_the_deleted_unit(self):
+        self.write_hooks(delete=[{"command": "exit 5"}])
+        self.shingi("create", "HOME-1", "group")
+        status, envelope = self.shingi("delete", "HOME-1")
+        self.assertEqual(status, 0, envelope)
+        (warning,) = envelope["warnings"]
+        self.assertEqual((warning["kind"], warning["unit"], warning["details"]["exit"]), ("hook-failed", "HOME-1", 5))
+        self.assertEqual(warning["details"]["event"], "delete")
+
+
+class ByHandTest(ShingiTestCase):
+    """The recipe in the hooks spec, run as written."""
+
+    RECIPE = (
+        'shingi where "$1" | jq -c --arg version "$(shingi version | jq -r .result.version)" '
+        "'{schema: 1, tool: \"shingi\", version: $version, event: \"create\", "
+        "input: {path: .result.path, kind: .result.kind}, result: {unit: .result}, warnings: []}'"
+    )
+
+    def by_hand(self, unit):
+        proc = subprocess.run(
+            ["sh", "-c", self.RECIPE, "sh", unit], env=self.env, capture_output=True, check=True,
+        )
+        return proc.stdout
+
+    def test_the_recipe_makes_the_payload_shingi_sent(self):
+        command, out = self.recorder()
+        self.write_hooks(create=[{"command": command}])
+        self.shingi("create", "HOME-1", "group")
+        sent = json.loads(out.read_text())
+        by_hand = json.loads(self.by_hand("HOME-1"))
+        self.assertEqual(sorted(by_hand), sorted(sent))
+        for field in sent:
+            if field == "warnings":
+                self.assertEqual(type(by_hand[field]), type(sent[field]))
+            else:
+                self.assertEqual(by_hand[field], sent[field], field)
+
+    def test_the_example_hook_copies_the_template_once(self):
+        example = self.hook(
+            "unit=$(jq -c .result.unit)\n"
+            '[ "$(printf \'%s\' "$unit" | jq -r .kind)" = branch ] || exit 0\n'
+            "plan=$(printf '%s' \"$unit\" | jq -r .working_folder)/plan.md\n"
+            '[ -e "$plan" ] || cp ~/templates/branch-plan.md "$plan"\n'
+        )
+        (self.tmp / "templates").mkdir()
+        (self.tmp / "templates" / "branch-plan.md").write_text("template\n")
+        self.shingi("create", "HOME-1", "group")
+        self.shingi("create", "HOME-1/b", "branch")
+        plan = self.working / "HOME-1" / "b" / "plan.md"
+        for unit in ("HOME-1", "HOME-1/b"):
+            subprocess.run(["sh", "-c", example], input=self.by_hand(unit), env=self.env, check=True)
+        self.assertEqual(plan.read_text(), "template\n")
+        self.assertFalse((self.working / "HOME-1" / "plan.md").exists())
+        plan.write_text("edited\n")
+        subprocess.run(["sh", "-c", example], input=self.by_hand("HOME-1/b"), env=self.env, check=True)
+        self.assertEqual(plan.read_text(), "edited\n")
+
+
 if __name__ == "__main__":
     unittest.main()

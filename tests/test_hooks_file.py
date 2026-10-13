@@ -194,5 +194,26 @@ class HooksFileTest(ShingiTestCase):
         self.assertEqual(warning["details"]["description"], "d")
 
 
+    def test_adopt_and_delete_behave_as_before_with_no_hooks_file(self):
+        (self.working / "HOME-1").mkdir()
+        status, out = self.shingi("adopt", "HOME-1", "group")
+        self.assertEqual((status, out["warnings"]), (0, []))
+        status, out = self.shingi("delete", "HOME-1")
+        self.assertEqual((status, out["warnings"]), (0, []))
+
+    def test_a_broken_hooks_file_stops_adopt_and_delete_before_any_change(self):
+        (self.working / "HOME-1").mkdir()
+        self.shingi("create", "HOME-2", "group")
+        self.write_raw("{")
+        status, out = self.shingi("adopt", "HOME-1", "group")
+        self.assertEqual(out["error"]["kind"], "invalid-hooks")
+        self.assertFalse((self.working / "HOME-1" / "uow.json").exists())
+        status, out = self.shingi("delete", "HOME-2")
+        self.assertEqual(out["error"]["kind"], "invalid-hooks")
+        self.assertTrue((self.working / "HOME-2" / "uow.json").exists())
+        self.write_file({"schema": 2})
+        self.assertEqual(self.shingi("delete", "HOME-2")[1]["error"]["kind"], "unsupported-format")
+
+
 if __name__ == "__main__":
     unittest.main()
