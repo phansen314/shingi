@@ -16,7 +16,7 @@ shingi version
 shingi kinds
 ```
 
-The tree is always in the same two places: units' working folders under `~/shingi-root`, and their tasks under the koan folder `/shingi`. Nothing needs setting up: the first `create` makes both. The kinds are `group` and `branch` unless the user has written a `shingi.toml` (in `~/.config/shingi/` on Linux, `~/Library/Application Support/shingi/` on macOS) defining their own. **Never write or change `shingi.toml` unasked**; it is the user's. shingi also needs koan, set up and on `PATH`.
+The tree is always in the same two places: units' working folders under `~/shingi-root`, and their tasks under the koan folder `/shingi`. Nothing needs setting up: the first `create` makes both. The kinds are `group` and `branch` unless the user has written a `shingi.toml` (in `~/.config/shingi/` on Linux, `~/Library/Application Support/shingi/` on macOS) defining their own. **Never write or change `shingi.toml` unasked**; it is the user's. So is `hooks.json`, beside it: the user's own commands, which `create`, `adopt`, and `delete` run once they have succeeded (see [Hooks](#hooks)). shingi also needs koan, set up and on `PATH`.
 
 ## Reading output
 
@@ -42,7 +42,8 @@ Error kinds worth handling:
 - `name-taken` — something is already at the name (`.error.details.entry`, `.type`): a folder, a file, or a name differing only in case. A folder of existing work is made a unit with `adopt`, not `create`.
 - `unit-exists` — it's already a unit: `shingi where` it.
 - `unknown-kind` — `.error.details.defined` lists the kinds there are.
-- `invalid-rules`, `unsupported-format` — the user's `shingi.toml` is wrong; report `.error.message` to the user.
+- `invalid-rules`, or `unsupported-format` whose `.error.details.path` doesn't end in `/hooks.json` — the user's rules file is wrong: `shingi.toml`, or the file `--config` named; report `.error.message` to the user.
+- `invalid-hooks`, or `unsupported-format` whose `.error.details.path` ends in `/hooks.json` — the user's hooks file is wrong, and `create`, `adopt`, and `delete` change nothing until it is fixed; report `.error.message`, and `.error.details.problems`, to the user. Don't fix it yourself unasked.
 - `koan-failed` — koan failed; `.error.details.error` is koan's own error. See [When create fails](#when-create-or-adopt-fails).
 - `io`, `internal` — stop and report to the user, quoting `.error.message`.
 
@@ -213,7 +214,7 @@ The key is `shingi-path`, never `shingi-unit`: on a koan task, `shingi-unit` is 
 2. `koan delete-folder <folder>` for each of `partial.koan_folders`, innermost first;
 3. remove each of `partial.files`, `uow.md` first.
 
-Tell the user what you're undoing before you do it. A `koan-failed` with `.error.details.error` `null`, or exit 3 or a signal, means the outcome is unknown: more may have been made than `partial` lists. Run `shingi list <parent>` (or `shingi list` for a top-level path): a unit at the path means it succeeded; an `orphan-task` whose `.details.folder` is the path's koan folder is what it left, to delete before trying again.
+Tell the user what you're undoing before you do it. A `koan-failed` with `.error.details.error` `null`, or exit 3 or a signal, means the outcome is unknown: more may have been made than `partial` lists. Run `shingi list <parent>` (or `shingi list` for a top-level path): a unit at the path means it succeeded, though its hooks may not all have run, or may have failed unseen, so tell the user; an `orphan-task` whose `.details.folder` is the path's koan folder is what it left, to delete before trying again.
 
 ## Warnings, and what to do
 
@@ -226,6 +227,16 @@ Tell the user what you're undoing before you do it. A `koan-failed` with `.error
 | `parent-done` | The parent's done task was already done, so the new unit doesn't block it. | Tell the user: they may want to `koan reopen` the parent's done task and block it on the new one. |
 | `parent-unlinked` | The parent's start or done task wasn't found, so that link was left out. | Tell the user; the link can be added by hand with `koan block`. |
 | `koan-failed`, `koan-warning` | koan failed, or warned (`.details`); tasks may be `null` or missing. | Tell the user; check koan (`koan info`, `koan doctor`). |
+| `hook-failed`, `hook-timeout` | One of the user's hooks failed, or ran past its timeout, after the command succeeded. `.details.command`, `.details.stderr`, and `.details.exit` (`hook-failed`) or `.details.timeout` (`hook-timeout`). | Tell the user which hook and what it printed. **Never run the command again**: its change is made, and `create` would be `unit-exists`. See [Hooks](#hooks). |
+
+## Hooks
+
+The user may list commands of their own in `hooks.json`, in shingi's config directory, for shingi to run after a successful `create`, `adopt`, or `delete`: copying a template into a new unit's folder, telling a coordinator. They are the user's, as a git hook is.
+
+- **Your `create` runs them.** A hook may already have set a new unit up, so look at what is there (`shingi context <path>`) before adding to it.
+- **A hook never fails the command.** One that fails is a `hook-failed` or `hook-timeout` warning on a command that succeeded: `.result` is as good as with no hooks. Report it, and leave rerunning the hook to the user.
+- **A hooks file shingi can't use stops `create`, `adopt`, and `delete`** before they change anything (`invalid-hooks`). Reads still work.
+- **Never write, change, or disable anything in `hooks.json` unasked,** and never work around a failing hook by making the unit some other way.
 
 ## Moving and removing units
 
@@ -237,6 +248,7 @@ There are no commands for these yet. **Only with the user's go-ahead**, naming w
 ## Hard rules
 
 - **Never create, edit, rename, or delete a `uow.json`.** It is shingi's. Edit `uow.md` freely: it is everyone's, and its first line, `# <title>`, is the unit's title.
+- **Never write or change `shingi.toml` or `hooks.json` unasked.** They are the user's.
 - **Never compose a unit's koan folder or working folder** from the roots and the path: ask `shingi where`.
 - **Don't create or adopt units the user didn't ask for**; propose them. Both ask for permission anyway.
 - **Never `delete` a unit unasked,** and never one whose work was done or cancelled: finish that one instead.

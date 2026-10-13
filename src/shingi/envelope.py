@@ -32,3 +32,30 @@ def encode(envelope):
     U+0000-U+001F, U+2028, and U+2029 are escaped."""
     text = json.dumps(envelope, ensure_ascii=False, separators=(",", ":"))
     return text.replace("\u2028", "\\u2028").replace("\u2029", "\\u2029") + "\n"
+
+
+def decode(data):
+    """The one JSON value in `data`, bytes, strictly: UTF-8, no key repeated in any object, and no
+    `NaN`, `Infinity`, or `-Infinity`. Raises ValueError with a reason for people."""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ValueError("not valid UTF-8")
+    try:
+        return json.loads(text, object_pairs_hook=no_duplicate_keys, parse_constant=not_json)
+    except ValueError as exc:
+        raise ValueError(f"not one JSON value: {exc}")
+    except RecursionError:
+        raise ValueError("not one JSON value: nested too deeply")
+
+
+def no_duplicate_keys(pairs):
+    keys = [key for key, _ in pairs]
+    duplicates = sorted({key for key in keys if keys.count(key) > 1})
+    if duplicates:
+        raise ValueError(f"duplicate key {duplicates[0]!r}")
+    return dict(pairs)
+
+
+def not_json(constant):
+    raise ValueError(f"{constant} is not JSON")

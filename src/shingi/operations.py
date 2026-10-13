@@ -9,7 +9,7 @@ import os
 import uuid
 from importlib.metadata import version as package_version
 
-from shingi import inputs, koan, rules as rules_file, units
+from shingi import hooks, inputs, koan, rules as rules_file, units
 from shingi.envelope import OperationError
 
 
@@ -168,6 +168,7 @@ def delete(inp, config):
     """Make a unit a plain folder again: remove its koan folder, then its manifest."""
     inputs.check("delete", inp)
     rules = rules_file.load(config)
+    loaded = hooks.load()
     path = inp["unit"]
     units.check_path(path)
     units.resolve(rules, path)
@@ -185,18 +186,22 @@ def delete(inp, config):
         error = io_error(exc, manifest)
         error.warnings = warnings
         raise error
-    return {
+    result = {
         "path": path,
         "koan_folder": kfolder,
         "working_folder": str(folder),
         "tasks": sorted(removed["deleted"]) if removed else [],
         "unblocked": sorted(removed["dependents"]) if removed else [],
-    }, warnings
+    }
+    warnings = units.sort_warnings(warnings)
+    warnings = units.sort_warnings(warnings + hooks.run(loaded, "delete", inp, result, warnings, unit=path))
+    return result, warnings
 
 
 def make_unit(inp, config, adopting):
     """create, or with `adopting`, adopt: they differ only in the working folder."""
     rules = rules_file.load(config)
+    loaded = hooks.load()
     path, kind = inp["path"], inp["kind"]
     units.check_path(path, creating=True)
     if kind not in rules.kinds:
@@ -241,7 +246,11 @@ def make_unit(inp, config, adopting):
     except Exception as exc:
         raise with_partial(exc, made, warnings)
     unit, read_warnings = units.read_unit(rules, path)
-    return {"unit": unit}, units.sort_warnings(warnings + read_warnings)
+    result = {"unit": unit}
+    warnings = units.sort_warnings(warnings + read_warnings)
+    event = "adopt" if adopting else "create"
+    warnings = units.sort_warnings(warnings + hooks.run(loaded, event, inp, result, warnings, unit=path))
+    return result, warnings
 
 
 def write_unit(rules, inp, path, kind, unit_id, adopting, parent, parent_start, parent_done, made, warnings):
@@ -341,10 +350,11 @@ def notes_text(title, notes):
 def check_entry(folder, path, adopting):
     """Check what is at the new unit's name in its parent's folder (operations.md, create step 1.4)."""
     name = folder.name
-    if (folder / units.MANIFEST).is_file():
+    siblings = sorted(folder.parent.iterdir() if folder.parent.exists() else [], key=lambda e: e.name.encode())  # no working root yet
+    # Only an entry named exactly so: on a case-insensitive filesystem, folder / MANIFEST finds another case's.
+    if any(entry.name == name and (entry / units.MANIFEST).is_file() for entry in siblings):
         raise OperationError("unit-exists", f"{path} already exists", {"manifest": str(folder / units.MANIFEST)})
-    siblings = folder.parent.iterdir() if folder.parent.exists() else []  # no working root yet
-    for entry in sorted(siblings, key=lambda e: e.name.encode()):
+    for entry in siblings:
         if entry.name.encode().lower() != name.encode().lower():  # ASCII case only
             continue
         # Only adopt may find something at the name: a folder with exactly it.

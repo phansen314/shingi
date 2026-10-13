@@ -1,0 +1,45 @@
+# CI: the unit tests and the smoke test, on Linux and macOS (hooks start and kill processes, so
+# the platforms differ). Modelled on koan's workflow; its action pins are reused.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  # A new commit on a PR supersedes the old run; every commit on main keeps its own.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: Install koan
+        run: |
+          go install github.com/phansen314/koan/cmd/koan@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Tool versions
+        run: |
+          koan version
+          jq --version
+          uv run python --version
+      # uv run puts this checkout's shingi first on PATH, which the tests run.
+      - name: Unit tests
+        run: uv run python -m unittest discover -s tests
+      - name: Smoke test
+        run: scripts/smoke.sh
