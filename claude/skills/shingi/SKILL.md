@@ -42,7 +42,7 @@ Error kinds worth handling:
 - `name-taken` — something is already at the name (`.error.details.entry`, `.type`): a folder, a file, or a name differing only in case. A folder of existing work is made a unit with `adopt`, not `create`.
 - `unit-exists` — it's already a unit: `shingi where` it.
 - `unknown-kind` — `.error.details.defined` lists the kinds there are.
-- `invalid-rules`, `unsupported-format` — the user's `shingi.toml` is wrong; report `.error.message` to the user.
+- `invalid-rules`, or `unsupported-format` whose `.error.details.path` doesn't end in `/hooks.json` — the user's rules file is wrong: `shingi.toml`, or the file `--config` named; report `.error.message` to the user.
 - `invalid-hooks`, or `unsupported-format` whose `.error.details.path` ends in `/hooks.json` — the user's hooks file is wrong, and `create`, `adopt`, and `delete` change nothing until it is fixed; report `.error.message`, and `.error.details.problems`, to the user. Don't fix it yourself unasked.
 - `koan-failed` — koan failed; `.error.details.error` is koan's own error. See [When create fails](#when-create-or-adopt-fails).
 - `io`, `internal` — stop and report to the user, quoting `.error.message`.
