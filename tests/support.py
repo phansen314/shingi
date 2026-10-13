@@ -65,7 +65,7 @@ sys.exit(proc.returncode)
 
 class ShingiTestCase(unittest.TestCase):
     def setUp(self):
-        tmp = Path(tempfile.mkdtemp())
+        tmp = Path(tempfile.mkdtemp()).resolve()  # shingi reports real paths: macOS's /var is /private/var
         self.addCleanup(shutil.rmtree, tmp)
         self.working = tmp / "shingi-root"
         self.working.mkdir()
