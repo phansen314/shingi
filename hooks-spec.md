@@ -198,6 +198,9 @@ Each of these is a test, against the real `shingi` and a hooks file in a tempora
 - A hook past its timeout is `hook-timeout`, returns as soon as it passes, and a process it started in the background, in its group, is gone.
 - A hook that starts a background process without redirecting its output, and exits, returns at once.
 - A hook that never reads stdin, given a payload far over a pipe's buffer, doesn't block.
+- A hook that opens `/dev/tty` fails at once, rather than waiting out its timeout.
+- The [by-hand](#by-hand) recipe's payload has the same fields, of the same types, as the one shingi sends for the same unit.
+- A `timeout` of `1e999` is `invalid-hooks`, `invalid`; one of `NaN` or `Infinity`, which aren't JSON, is `invalid-hooks`, `syntax`.
 - Each problem in the hooks file is `invalid-hooks` with its field, and nothing is changed; an unsupported `schema` is `unsupported-format`; reads still work with a broken file.
 
 ## Changes to the other specs
