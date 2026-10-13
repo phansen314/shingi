@@ -436,7 +436,7 @@ Every problem shingi reports, by name. An error means the command changed nothin
 | `parent-unlinked` | `create`, `adopt` | The parent's start or done task could not be found — missing, or the parent's `id` unreadable — so the link to it was left out, to be added by hand; a link to the other was still made. |
 | `koan-failed` | `where`, `context`, `list`, `create`, `adopt` | koan could not be run, or returned an error; every task is `null`, and everything else is still reported. From `create` or `adopt`, only when reading the new unit back; anywhere earlier it is an error. |
 | `koan-warning` | `where`, `context`, `list`, `create`, `adopt` | A koan call warned, passed on in `details`. An unusable or unreadable task file can hide a start or done task, so while one is present, `missing-task`, `orphan-task`, or `parent-unlinked` may be wrong. |
-| `hook-failed` | `create`, `adopt`, `delete` | A [hook](#hooks) exited nonzero, was killed, or couldn't be started. The command's change is made, and stays. |
+| `hook-failed` | `create`, `adopt`, `delete` | A [hook](#hooks) exited nonzero, was killed, or couldn't be started (shingi unable to make the files it needs for one is that too). The command's change is made, and stays. |
 | `hook-timeout` | `create`, `adopt`, `delete` | A hook was still running when its timeout passed, and was killed. |
 
 ## Front ends

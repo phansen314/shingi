@@ -130,7 +130,7 @@ The hooks for an event run one at a time, in the order the file lists them, skip
 - **Its own Unix session, and so its own process group** (`setsid`). A timeout ends the hook and everything it started, and nothing of shingi's. With no terminal, a hook that tries to read from one fails at once, where one in shingi's own would be stopped and sit until its timeout.
 - **Waited for until it exits,** never until its output closes. A hook that starts something in the background and exits is done; the background process goes on, unwatched, and shingi returns.
 - **The timeout:** when it passes with the hook still running, shingi sends `SIGKILL` to the hook's process group, with no warning signal first, and reports `hook-timeout`.
-- **An interrupt:** shingi killed by `SIGINT`, `SIGTERM`, or `SIGHUP` while a hook runs sends `SIGKILL` to the hook's process group, then dies of the same signal, as it would have (see [Exit codes](cli-spec.md#exit-codes)). The hooks after it don't run. A shingi killed by `SIGKILL`, or one that crashes, kills nothing: its hook runs on, with nothing watching it or its timeout.
+- **An interrupt:** shingi killed by `SIGINT`, `SIGTERM`, or `SIGHUP` while a hook runs sends `SIGKILL` to the hook's process group, then dies of the same signal, as it would have (see [Exit codes](cli-spec.md#exit-codes)). The hooks after it don't run. A signal that was ignored when shingi started stays ignored while a hook runs, as it is with none. A shingi killed by `SIGKILL`, or one that crashes, kills nothing: its hook runs on, with nothing watching it or its timeout.
 
 A hook that exits `0` succeeded. Anything else is a warning, and the next hook still runs.
 
@@ -153,7 +153,7 @@ Only `warnings`. The command's `result`, its exit status, and whether it succeed
 
 | Kind | When |
 |---|---|
-| `hook-failed` | The hook exited nonzero, was killed by a signal, or couldn't be started. |
+| `hook-failed` | The hook exited nonzero, was killed by a signal, or couldn't be started: shingi unable to make the temporary files a hook needs, on a full disk say, is that too. |
 | `hook-timeout` | The hook was still running when its timeout passed, and was killed. |
 
 Each one's `unit`, `ids`, and `details`, and where it sorts among the command's own warnings, are in operations.md's [Warnings](operations.md#warnings).
