@@ -15,7 +15,8 @@ EXIT_USAGE = 2
 EXIT_UNKNOWN = 3
 
 # Each command: its operation, its positional arguments' fields, and its options' fields.
-# A field ending in "@file" is read from the file the option names ("-" is stdin).
+# A field ending in "@file" is read from the file the option names ("-" is stdin); one ending in
+# "@list" is a comma-separated list, and its option may be repeated.
 COMMANDS = {
     "version": (operations.version, [], {}),
     "kinds": (operations.kinds, [], {}),
@@ -25,7 +26,7 @@ COMMANDS = {
     "create": (
         operations.create,
         ["path", "kind"],
-        {"--title": "title", "--notes": "notes", "--notes-file": "notes@file"},
+        {"--title": "title", "--notes": "notes", "--notes-file": "notes@file", "--after": "after@list"},
     ),
     "adopt": (operations.adopt, ["path", "kind"], {"--title": "title"}),
     "delete": (operations.delete, ["unit"], {}),
@@ -40,7 +41,7 @@ HELP = {
     "kinds": ("shingi kinds", "Every kind the rules define."),
     "version": ("shingi version", "shingi's own version."),
     "create": (
-        "shingi create <path> <kind> [--title <text>] [--notes <text> | --notes-file <file>]",
+        "shingi create <path> <kind> [--title <text>] [--notes <text> | --notes-file <file>] [--after <paths>]",
         "Make one unit: its start and done tasks in koan, its working folder, uow.md, and manifest.",
     ),
     "adopt": ("shingi adopt <path> <kind> [--title <text>]", "Make an existing folder a unit, leaving what is in it."),
@@ -121,6 +122,8 @@ def parse(argv):
                 raise usage_error(f"{set_by[field]} and {name} can't be given together", token)
             if source == "file":
                 files[field] = value
+            elif source == "list":
+                inp.setdefault(field, []).extend(value.split(","))
             else:
                 inp[field] = value
         elif token.startswith("-") and token != "-":

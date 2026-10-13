@@ -114,7 +114,7 @@ koan delete-folder -r /shingi/HOME-3 && rm -rf "$HOME/shingi-root/HOME-3"  # out
 check "--notes with --notes-file" 2 '.error.kind == "usage"' -- create HOME-7 group --notes a --notes-file -
 check "again: unit-exists" 1 '.error.kind == "unit-exists"' -- create HOME-1 group
 check "unknown kind" 1 '.error.details | .kind == "story" and .defined == ["branch", "group"]' -- create HOME-3 story
-check "bad name" 1 '.error.kind == "invalid-name"' -- create bad- group
+check "bad name" 1 '.error.kind == "invalid-name" and .error.details.field == "/path"' -- create bad- group
 check "missing parent" 1 '.error.details == {parent: "HOME-9/x", missing: "HOME-9"}' -- create HOME-9/x/y group
 check "missing kind" 2 '.error.kind == "usage"' -- create HOME-3
 check "empty title" 1 '.error.details.problems == [{field: "/title", reason: "must not be empty"}]' -- create HOME-3 group --title ''
@@ -136,6 +136,28 @@ expect "the parent's done task waits on both" \
 koan done "$p_start"
 check "parent started" 0 '.result.state == "started"' -- where HOME-1
 check "a child is ready once its parent starts" 0 '.result.start.readiness == "ready"' -- where HOME-1/a
+
+echo "== order between units"
+check "a unit to come after" 0 '.ok' -- create HOME-8 group
+o_start=$(jq .result.unit.start.id <<<"$out")
+check "a first child" 0 '.ok' -- create HOME-8/research group
+r_done=$(jq .result.unit.done.id <<<"$out")
+check "--after, a list and repeated" 0 '.result.unit.start.readiness == "blocked" and .warnings == []' \
+	-- create HOME-8/implementation group --after HOME-8/research --after HOME-1/a,HOME-1/b
+i_start=$(jq .result.unit.start.id <<<"$out")
+expect "its start task waits on its parent's start task and each done task" \
+	'[[ $("$KOAN" show '"$i_start"' | jq -c .result.task.blocked_by) == "[$a_done,$b_done,$o_start,$r_done]" ]]'
+check "after itself" 1 '.error.kind == "after-lineage" and .error.details == {field: "/after/0", after: "HOME-8/x", relation: "self"}' \
+	-- create HOME-8/x group --after HOME-8/x
+check "after an ancestor" 1 '.error.details == {field: "/after/1", after: "HOME-8", relation: "ancestor"}' \
+	-- create HOME-8/x group --after HOME-8/research,HOME-8
+check "after a unit that isn't one" 1 '.error.kind == "after-not-found" and .error.details == {field: "/after/0", after: "HOME-8/nope", missing: "HOME-8/nope"}' \
+	-- create HOME-8/x group --after HOME-8/nope
+check "after a bad name" 1 '.error.kind == "invalid-name" and .error.details.field == "/after/0"' -- create HOME-8/x group --after -bad
+check "after the same unit twice" 1 '.error.details.problems[0].field == "/after/1"' -- create HOME-8/x group --after HOME-1/a,HOME-1/a
+expect "nothing made by a refusal" '[[ ! -e $HOME/shingi-root/HOME-8/x ]]'
+check "adopt has no --after" 2 '.error.kind == "usage"' -- adopt HOME-8/x group --after HOME-1/a
+koan delete-folder -r /shingi/HOME-8 && rm -rf "$HOME/shingi-root/HOME-8"  # out of the way of list's checks
 
 echo "== where from a directory"
 mkdir -p "$HOME/shingi-root/HOME-1/a/logs/2026" "$HOME/shingi-root/scratch"

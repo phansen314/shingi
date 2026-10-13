@@ -39,6 +39,8 @@ Error kinds worth handling:
 - `not-found` — the path isn't a unit; `.error.details.missing` is the first folder on it that isn't one. From `where` with no path: `reason` `no-unit` or `outside-root` (you're not in a unit's working folder). From `adopt`: `reason` `no-folder`, there is nothing at the path to adopt.
 - `invalid-name` — a path segment breaks the name rule (below).
 - `parent-not-found` — create the parent first.
+- `after-not-found` — a unit named in `--after` isn't a unit (`.error.details.after`): create it first.
+- `after-lineage` — `--after` names the unit itself or one of its ancestors, which would never let it start. Drop that entry: a unit already waits on its ancestors' start tasks. To wait on work inside the parent, name those sibling units instead.
 - `name-taken` — something is already at the name (`.error.details.entry`, `.type`): a folder, a file, or a name differing only in case. A folder of existing work is made a unit with `adopt`, not `create`.
 - `unit-exists` — it's already a unit: `shingi where` it.
 - `unknown-kind` — `.error.details.defined` lists the kinds there are.
@@ -97,6 +99,17 @@ shingi create HOME-12345/foo-split/1-schema branch --title 'foo: schema changes'
 
 `--title` is one line (default: the name). `--notes` for a line or two, `--notes-file -` with a quoted heredoc for more. `create` makes the koan folder, the start and done tasks (linked to the parent's: the start task waits on the parent's start task, and the parent's done task waits on the new done task), the working folder, `uow.md`, and the manifest. `.result.unit` is the new unit.
 
+**Order between units: `--after`.** A unit that must wait for another is created `--after` it: its start task is blocked by that unit's done task. Give full paths, comma-separated or with the option repeated; create the units it comes after first:
+
+```sh
+shingi create HOME-12345/setup group
+shingi create HOME-12345/research group --after HOME-12345/setup
+shingi create HOME-12345/implementation group --after HOME-12345/research
+shingi create HOME-12345/review group --after HOME-12345/implementation
+```
+
+Order carries through the tree, so say it once, at the top: every unit under `implementation` waits on `research`, since a child's start task waits on its parent's; and `review` waits on every one of them, since a parent's done task waits on its children's. A stack's pieces are each `--after` the one before. `adopt` has no `--after`.
+
 **Existing work:** a folder that already holds work (drafts, notes) becomes a unit with `adopt`, which keeps everything in it, its `uow.md` included:
 
 ```sh
@@ -134,7 +147,7 @@ EOF
 koan block "$done" --blockers "$(jq -r '.result.ids | join(",")' <<<"$out")"
 ```
 
-- **Order across units** is ordinary blocking: a stack's next piece has its start task blocked by the previous piece's done task (`koan block <next start> --blockers <previous done>`); likewise for a unit that needs another's API change.
+- **Order across units** is given when the later unit is created, with `create --after` (above). Between units that both exist already, add it by hand: the later unit's start task is blocked by the earlier one's done task (`koan block <later start> --blockers <earlier done>`).
 - **Never tag your tasks `shingi`, `shingi-start`, or `shingi-done`**, and never set `extra.source` or `extra.shingi-unit` on them: those mark the start and done tasks, and anything else carrying them shows up as an `orphan-task`.
 
 ## Setting a unit up: `## Code`
@@ -213,6 +226,8 @@ The key is `shingi-path`, never `shingi-unit`: on a koan task, `shingi-unit` is 
 2. `koan delete-folder <folder>` for each of `partial.koan_folders`, innermost first;
 3. remove each of `partial.files`, `uow.md` first.
 
+**A cycle is not run again.** After `create --after`, a `koan-failed` whose `.error.details.error.kind` is `conflict` and `.rule` is `cycle` means an `--after` unit itself waits on the new unit's parent or another ancestor, so the new unit could never start. Undo the partial, tell the user, and don't run it again with that entry: `.error.details.error.ids` are the tasks in the cycle, and `koan show` on them says which unit it runs through.
+
 Tell the user what you're undoing before you do it. A `koan-failed` with `.error.details.error` `null`, or exit 3 or a signal, means the outcome is unknown: more may have been made than `partial` lists. Run `shingi list <parent>` (or `shingi list` for a top-level path): a unit at the path means it succeeded; an `orphan-task` whose `.details.folder` is the path's koan folder is what it left, to delete before trying again.
 
 ## Warnings, and what to do
@@ -225,6 +240,7 @@ Tell the user what you're undoing before you do it. A `koan-failed` with `.error
 | `undefined-kind` | A unit's kind is no longer in `shingi.toml`. | Tell the user; the rules or the unit is theirs to fix. |
 | `parent-done` | The parent's done task was already done, so the new unit doesn't block it. | Tell the user: they may want to `koan reopen` the parent's done task and block it on the new one. |
 | `parent-unlinked` | The parent's start or done task wasn't found, so that link was left out. | Tell the user; the link can be added by hand with `koan block`. |
+| `after-unlinked` | The done task of a unit named in `--after` (`.details.after`) wasn't found, so the new unit doesn't wait on it. | Tell the user; the link can be added by hand with `koan block`. |
 | `koan-failed`, `koan-warning` | koan failed, or warned (`.details`); tasks may be `null` or missing. | Tell the user; check koan (`koan info`, `koan doctor`). |
 
 ## Moving and removing units

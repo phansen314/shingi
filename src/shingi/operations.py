@@ -40,7 +40,7 @@ def named_unit(rules, inp):
     if "cwd" in inp:
         return units.resolve_directory(rules, inp["cwd"])
     path = inp["unit"]
-    units.check_path(path)
+    units.check_path(path, "/unit")
     units.resolve(rules, path)
     return path
 
@@ -98,7 +98,7 @@ def list_units(inp, config):
     rules = rules_file.load(config)
     root = inp.get("unit")
     if root is not None:
-        units.check_path(root)
+        units.check_path(root, "/unit")
         units.resolve(rules, root)
     manifests, warnings = {}, []
     for path in units.walk(rules, root):
@@ -169,7 +169,7 @@ def delete(inp, config):
     inputs.check("delete", inp)
     rules = rules_file.load(config)
     path = inp["unit"]
-    units.check_path(path)
+    units.check_path(path, "/unit")
     units.resolve(rules, path)
     children = [child["path"] for child in units.children(rules, path)]
     if children:
@@ -198,11 +198,22 @@ def make_unit(inp, config, adopting):
     """create, or with `adopting`, adopt: they differ only in the working folder."""
     rules = rules_file.load(config)
     path, kind = inp["path"], inp["kind"]
-    units.check_path(path, creating=True)
+    after = inp.get("after", [])  # create only: adopt's input has none
+    units.check_path(path, "/path", creating=True)
+    for index, entry in enumerate(after):
+        units.check_path(entry, f"/after/{index}")
     if kind not in rules.kinds:
         raise OperationError(
             "unknown-kind", f"kind {kind!r} is not defined", {"kind": kind, "defined": sorted(rules.kinds)}
         )
+    for index, entry in enumerate(after):
+        if entry == path or path.startswith(entry + "/"):
+            relation = "self" if entry == path else "ancestor"
+            raise OperationError(
+                "after-lineage",
+                f"{path} can't come after {'itself' if entry == path else 'its ancestor ' + entry}",
+                {"field": f"/after/{index}", "after": entry, "relation": relation},
+            )
     parent = units.parent_of(path)
     parent_start = parent_done = None
     if parent is not None:
@@ -216,6 +227,15 @@ def make_unit(inp, config, adopting):
             )
     folder = units.working_folder(rules, path)
     check_entry(folder, path, adopting)
+    for index, entry in enumerate(after):
+        try:
+            units.resolve(rules, entry)
+        except OperationError as error:
+            raise OperationError(
+                "after-not-found",
+                f"{entry} is not a unit",
+                {"field": f"/after/{index}", "after": entry, "missing": error.details["missing"]},
+            )
     warnings = []
     if parent is not None:
         parent_manifest, _ = units.check_manifest(rules, parent)
@@ -234,18 +254,42 @@ def make_unit(inp, config, adopting):
                     details={"parent": parent, "role": role, "reason": reason},
                 ))
 
+    after_done = []
+    for entry in after:
+        entry_manifest, _ = units.check_manifest(rules, entry)
+        done = None
+        if entry_manifest is None:
+            reason = "unsupported-manifest"
+        else:
+            reason = "missing-task"
+            _, done, koan_warnings = units.find_tasks(rules, entry, entry_manifest["id"])
+            warnings += koan_warnings
+        if done is None:
+            warnings.append(units.warning(
+                "after-unlinked",
+                f"{entry}'s done task wasn't found, so {path} doesn't wait on it",
+                path,
+                details={"after": entry, "reason": reason},
+            ))
+        else:
+            after_done.append(done["id"])
+
     unit_id = str(uuid.uuid4())
     made = {"koan_folders": [], "tasks": [], "blocked": None, "files": []}
     try:
-        write_unit(rules, inp, path, kind, unit_id, adopting, parent, parent_start, parent_done, made, warnings)
+        write_unit(
+            rules, inp, path, kind, unit_id, adopting, parent, parent_start, parent_done, after_done, made, warnings
+        )
     except Exception as exc:
         raise with_partial(exc, made, warnings)
     unit, read_warnings = units.read_unit(rules, path)
     return {"unit": unit}, units.sort_warnings(warnings + read_warnings)
 
 
-def write_unit(rules, inp, path, kind, unit_id, adopting, parent, parent_start, parent_done, made, warnings):
-    """create's steps 3 to 5: make the tasks, link the parent, write the files, recording in
+def write_unit(
+    rules, inp, path, kind, unit_id, adopting, parent, parent_start, parent_done, after_done, made, warnings
+):
+    """create's steps 4 to 6: make the tasks, link the parent, write the files, recording in
     `made` what each step made."""
     try:
         batch, koan_warnings = koan.create_batch({
@@ -256,7 +300,7 @@ def write_unit(rules, inp, path, kind, unit_id, adopting, parent, parent_start, 
                     "title": f"Start: {path}",
                     "tags": ["shingi", "shingi-start"],
                     "extra": {"source": "shingi-start", "shingi-unit": unit_id},
-                    "blocked_by": [parent_start["id"]] if parent_start else [],
+                    "blocked_by": ([parent_start["id"]] if parent_start else []) + after_done,
                 },
                 {
                     "ref": "done",
@@ -339,7 +383,7 @@ def notes_text(title, notes):
 
 
 def check_entry(folder, path, adopting):
-    """Check what is at the new unit's name in its parent's folder (operations.md, create step 1.4)."""
+    """Check what is at the new unit's name in its parent's folder (operations.md, create step 1.5)."""
     name = folder.name
     if (folder / units.MANIFEST).is_file():
         raise OperationError("unit-exists", f"{path} already exists", {"manifest": str(folder / units.MANIFEST)})

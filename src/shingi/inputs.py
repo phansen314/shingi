@@ -15,7 +15,7 @@ FIELDS = {
     "where": {"unit": False, "cwd": False},
     "context": {"unit": False, "cwd": False},
     "list": {"unit": False},
-    "create": {"path": True, "kind": True, "title": False, "notes": False},
+    "create": {"path": True, "kind": True, "title": False, "notes": False, "after": False},
     "adopt": {"path": True, "kind": True, "title": False},
     "delete": {"unit": True},
 }
@@ -36,6 +36,29 @@ def utf8(text):
     return True
 
 
+def string_problems(operation, field, value):
+    if not isinstance(value, str):
+        return [{"field": field, "reason": "must be a string"}]
+    if not utf8(value):
+        return [{"field": field, "reason": "not valid UTF-8"}]
+    if operation in ("create", "adopt") and "\0" in value:
+        return [{"field": field, "reason": "holds a NUL"}]
+    return []
+
+
+def after_problems(after):
+    """The problems in create's `after`: it is an array of strings, no two the same."""
+    if not isinstance(after, list):
+        return [{"field": "/after", "reason": "must be an array"}]
+    problems = []
+    for index, entry in enumerate(after):
+        found = string_problems("create", f"/after/{index}", entry)
+        if not found and entry in after[:index]:
+            found = [{"field": f"/after/{index}", "reason": "names a path already given"}]
+        problems += found
+    return problems
+
+
 def check(operation, inp):
     """Raise invalid-input with every problem in `inp`, `operation`'s input."""
     fields = FIELDS[operation]
@@ -44,12 +67,10 @@ def check(operation, inp):
         field = f"/{name}"
         if name not in fields:
             problems.append({"field": field, "reason": "unknown field"})
-        elif not isinstance(value, str):
-            problems.append({"field": field, "reason": "must be a string"})
-        elif not utf8(value):
-            problems.append({"field": field, "reason": "not valid UTF-8"})
-        elif operation in ("create", "adopt") and "\0" in value:
-            problems.append({"field": field, "reason": "holds a NUL"})
+        elif name == "after":
+            problems += after_problems(value)
+        else:
+            problems += string_problems(operation, field, value)
     for name, required in fields.items():
         if required and name not in inp:
             problems.append({"field": f"/{name}", "reason": "required"})

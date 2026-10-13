@@ -30,20 +30,21 @@ def warning(kind, message, unit, ids=(), details=None):
 MAX_PATH = 193  # so a start task's title, "Start: <path>", fits koan's 200
 
 
-def check_path(path, creating=False):
+def check_path(path, field, creating=False):
     """Raise invalid-name, naming the first bad segment, unless `path` is a unit path; and when
-    `creating`, unless it is at most MAX_PATH characters."""
+    `creating`, unless it is at most MAX_PATH characters. `field` is a JSON Pointer to the input
+    field the path came from."""
     for index, segment in enumerate(path.split("/")):
         reason = segment_problem(segment)
         if reason is not None:
             raise OperationError("invalid-name", f"invalid unit path {path!r}: segment {index} is {reason}", {
-                "path": path, "index": index, "segment": segment, "reason": reason,
+                "field": field, "path": path, "index": index, "segment": segment, "reason": reason,
             })
     if creating and len(path) > MAX_PATH:
         raise OperationError(
             "invalid-name",
             f"{path!r} is over {MAX_PATH} characters",
-            {"path": path, "index": None, "segment": None, "reason": "path-length"},
+            {"field": field, "path": path, "index": None, "segment": None, "reason": "path-length"},
         )
 
 
@@ -249,7 +250,7 @@ def koan_failed(error, unit):
 
 
 def sort_warnings(warnings):
-    """In the spec's order: by kind, unit in path order (null first), ids, then role."""
+    """In the spec's order: by kind, unit in path order (null first), ids, role, then `after`."""
     roles = {"start": 0, "done": 1}
     return sorted(warnings, key=lambda w: (
         w["kind"],
@@ -257,6 +258,7 @@ def sort_warnings(warnings):
         path_key(w["unit"] or ""),
         w["ids"],
         roles.get(w["details"].get("role"), -1),
+        path_key(w["details"].get("after") or "") if w["kind"] == "after-unlinked" else [],
     ))
 
 
