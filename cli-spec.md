@@ -57,6 +57,7 @@ The command line is parsed in the GNU style, with koan's rules:
 - **Encoding.** Every value is UTF-8; one that is not is `invalid-input` at its field, reported in the operation's own `invalid-input` together with any other problems in the input.
 - **The CLI rejects only what it cannot build:** two different options that set one field (`--notes` with `--notes-file`), or `--input` with a field argument or option. Everything else reaches the operation.
 - **A repeated option** that takes one value: the last one wins.
+- **Lists** follow koan: comma-separated, and the option may be repeated, the values joined in the order given. `--after a,b` and `--after a --after b` are the same. `create`'s `--after` is the only one. Every piece between commas is an entry, taken as it is: an empty one (`--after ''`, `--after a,,b`) reaches the operation, which rejects it as `invalid-name`.
 - **Bare `shingi`**, with no command, is a usage error.
 - **`--help`** (or `-h`) writes help text and exits `0`, running no operation. Help text is for people and not part of the contract.
 - **No `help`, `completion`, or `init` command.** Each is a usage error, like any unknown command.
@@ -283,7 +284,7 @@ shingi version | jq -r .result.version
 
 Make one unit: its start and done tasks in koan, its working folder, `uow.md`, and manifest. Runs [`create`](operations.md#create).
 
-**Synopsis:** `shingi create <path> <kind> [--title <text>] [--notes <text> | --notes-file <file>]`, or `shingi create -i <file>`.
+**Synopsis:** `shingi create <path> <kind> [--title <text>] [--notes <text> | --notes-file <file>] [--after <paths>]`, or `shingi create -i <file>`.
 
 **Operation:** [`create`](operations.md#create).
 
@@ -301,6 +302,7 @@ Make one unit: its start and done tasks in koan, its working folder, `uow.md`, a
 | `--title <text>` | `/title` | The unit's name. One line. |
 | `--notes <text>` | `/notes` | No notes. Mutually exclusive with `--notes-file`. |
 | `--notes-file <file>` | `/notes` | No notes. Reads the notes from `<file>`; `-` is stdin. Mutually exclusive with `--notes`. |
+| `--after <paths>` | `/after` | None. Comma list of unit paths, exact; may be repeated. The new unit's start task waits on each one's done task. |
 
 **Input:** `--notes-file` reads the file's contents exactly as they are, trailing newline included, into `notes`; `create` adds a final newline only when they lack one. It accepts any readable path, as [`--input`](#input) does. Since `--input` excludes field options, `--notes-file -` and `--input -` never both read stdin.
 
@@ -324,6 +326,8 @@ shingi create HOME-12345/foo-split group --title 'foo: seven stacked MRs'
 shingi create HOME-12345/foo-split/1-schema branch --title 'foo: schema changes' | jq -r .result.unit.start.id
 printf 'Story: retry failed payments.\n' | shingi create HOME-12345 group --notes-file -
 shingi create HOME-12345/research group 2>/dev/null | jq -e .ok >/dev/null || echo 'create failed'
+shingi create HOME-12345/implementation group --after HOME-12345/research
+shingi create HOME-12345/review group --after HOME-12345/implementation,HOME-99/api-change
 ```
 
 ### adopt
