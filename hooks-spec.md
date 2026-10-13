@@ -14,6 +14,7 @@ Let a user run their own commands when shingi changes the tree, so what a kind, 
 - **Running a hook asynchronously.** A hook that starts slow work in the background does so itself (see [Running a hook](#running-a-hook)).
 - **Hooks before a command, or hooks that decide.** No hook runs before a change, vetoes one, or returns anything shingi reads but its exit status.
 - **Matchers.** Every hook for an event runs for every command that fires it, and filters for itself, with `jq` on its input. A matcher (a kind, a path prefix) is added only if starting hooks that do nothing is ever noticeably slow.
+- **Skipping hooks for one command.** No flag or environment variable turns hooks off for a single run. A hook is turned off in the hooks file, with `disabled`, for every command.
 - **Retries.** shingi runs each hook once. A failed hook is told; running it again is the user's (see [By hand](#by-hand)).
 - **Guarding against loops.** A hook that runs `shingi create`, whose hook runs `shingi create` again, loops until something fails. Keeping hooks from that is the user's.
 - **Serializing hooks across commands.** Two shingi commands run at the same time run their hooks at the same time. A hook that can't share what it touches with another copy of itself takes its own lock.
