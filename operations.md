@@ -17,7 +17,7 @@ Terms follow the design spec's [Terms](design-spec.md#terms).
 ## Operation kinds
 
 - ***read*** — Changes nothing and takes no lock: [`where`](#where), [`context`](#context), [`list`](#list), [`kinds`](#kinds), and [`version`](#version).
-- ***write*** — Changes koan's tree and the working root: [`create`](#create), [`adopt`](#adopt), and [`delete`](#delete). None takes a lock of its own; koan serializes its own writes, and the manifest's exclusive create settles a race (see [Concurrency](design-spec.md#concurrency)).
+- ***write*** — Changes koan's tree and the working root: [`create`](#create), [`adopt`](#adopt), and [`delete`](#delete). None takes a lock of its own; koan serializes its own writes, and the manifest's exclusive create settles a race (see [Concurrency](design-spec.md#concurrency)). Each, once it has succeeded, [runs the user's hooks](#running-hooks).
 
 ## Operation template
 
@@ -90,7 +90,8 @@ Every operation returns one of two shapes:
 |---|---|---|
 | `invalid-input` | The input failed its schema or its additional validation. Reports every problem, not just the first. | `problems`: `{field, reason}` list, `field` a JSON Pointer into the input, `reason` for people; sorted by `field`, then `reason`. |
 | `invalid-rules` | The rules file is unreadable, not TOML, or breaks the design spec's [Fields](design-spec.md#fields); or the file `--config` names is missing. | `path`: the rules file; `reason`: `missing` (from `--config` only), `unreadable`, `syntax`, or `invalid`; `problems`: for `invalid`, a `{field, reason}` list, `field` the dotted TOML key (`schema`, `kind.branch.suggests`), sorted by `field`; otherwise empty. `code`: the symbolic OS error, for `unreadable`. |
-| `unsupported-format` | The rules file's `schema` is an integer shingi doesn't support. | `path`; `schema`: the one found; `supported`: the ones shingi supports, ascending. |
+| `unsupported-format` | The rules file's `schema`, or the hooks file's, is an integer shingi doesn't support. | `path`: the file, which says which of the two it is; `schema`: the one found; `supported`: the ones shingi supports, ascending. |
+| `invalid-hooks` | The hooks file is unreadable, not JSON, or breaks the hooks spec's [Fields](hooks-spec.md#fields) (see [Running hooks](#running-hooks)). Nothing was changed. | `path`: the hooks file; `reason`: `unreadable`, `syntax`, or `invalid`; `problems`: for `invalid`, a `{field, reason}` list, `field` a JSON Pointer into the file (`/hooks/create/0/timeout`), sorted by `field`; otherwise empty. `code`: the symbolic OS error, for `unreadable`. |
 | `not-found` | The unit named is not a unit; from [`where`](#where) or [`context`](#context) without one, the current directory is in no unit; or, from [`adopt`](#adopt), the folder to adopt doesn't exist. | `unit`: the path given, or `null`; `missing`: the shortest prefix of `unit` that is not a unit (the first folder on the path that doesn't exist, matches only ignoring case, or holds no `uow.json`), or `null`; `cwd`: the directory given, or `null`; `reason`: `not-a-unit` (a path was given), `outside-root`, `no-unit`, or, from `adopt`, `no-folder` (with `missing` the path itself). |
 | `invalid-name` | A path breaks the design spec's [Names](design-spec.md#names). | `path`: as given; `index`: the first bad segment's position, from `0`; `segment`: that segment; `reason`: `empty` (a leading, trailing, or doubled `/`, or an empty path), `characters`, `length`, `hyphen` (starts or ends with `-`), or, from [`create`](#create) or [`adopt`](#adopt) only, `path-length` (the whole path is over 193 characters; `index` and `segment` `null`). |
 | `parent-not-found` | `create`'s or `adopt`'s path has more than one segment, and its parent is not a unit. | `parent`: the parent's path; `missing`: as for `not-found`. |
@@ -106,7 +107,7 @@ Every operation returns one of two shapes:
 
 ### Precedence
 
-Each operation's Errors table lists its checks in the order it makes them, and an error is the first check that fails. For every operation but `version`, the first three are always `invalid-input`, `invalid-rules`, and `unsupported-format`; the rules file is checked as [Reading the rules](#reading-the-rules) says.
+Each operation's Errors table lists its checks in the order it makes them, and an error is the first check that fails. For every operation but `version`, the first three are always `invalid-input`, `invalid-rules`, and `unsupported-format`; the rules file is checked as [Reading the rules](#reading-the-rules) says. For a write, the hooks file's two come next, `invalid-hooks` and `unsupported-format`, in the order of the checks [Running hooks](#running-hooks) names: an unsupported `schema` is `unsupported-format` whatever else is wrong with the file's fields, as it is for the rules.
 
 ### Error schema
 
@@ -130,8 +131,8 @@ Each operation's Errors table lists its checks in the order it makes them, and a
 
 A warning is a problem an operation told and went on past. It never changes the outcome, and never guesses: what it reports as `null` stays `null`.
 
-- **One warning per problem:** per unit for `unsupported-manifest` and `undefined-kind`, per unit and role for `missing-task` and `parent-unlinked`, one for `parent-done`, per task for `orphan-task`, per koan warning for `koan-warning`.
-- **Deterministic order:** `warnings` is sorted by `kind`, then by `unit` in [path order](design-spec.md#terms), `null` first, then by `ids`, compared element by element as numbers, then by `details.role`, `start` before `done`. `koan-warning`s that still tie keep koan's order, calls in the order shingi made them.
+- **One warning per problem:** per unit for `unsupported-manifest` and `undefined-kind`, per unit and role for `missing-task` and `parent-unlinked`, one for `parent-done`, per task for `orphan-task`, per koan warning for `koan-warning`, per hook for `hook-failed` and `hook-timeout`.
+- **Deterministic order:** `warnings` is sorted by `kind`, then by `unit` in [path order](design-spec.md#terms), `null` first, then by `ids`, compared element by element as numbers, then by `details.role`, `start` before `done`. `koan-warning`s that still tie keep koan's order, calls in the order shingi made them. Hook warnings that still tie keep the order their hooks ran in; since `kind` comes first, every `hook-failed` is before every `hook-timeout`, and `details.index` says the order they ran in.
 
 ### Warning kinds
 
@@ -145,6 +146,8 @@ A warning is a problem an operation told and went on past. It never changes the 
 | `parent-unlinked` | The parent's start or done task could not be found, so that link was left out. | the new unit | `[]` | `parent`; `role`: `start` or `done`; `reason`: `unsupported-manifest` or `missing-task`. |
 | `koan-failed` | koan could not be run, or returned an error, while reading tasks; every task is `null`. | the unit read, or `null` from `list` | `[]` | As the [error](#error-kinds). |
 | `koan-warning` | A koan call succeeded with a warning of its own. An unusable task file can hide a start or done task, so while one is present, `missing-task`, `orphan-task`, or `parent-unlinked` may be wrong. | `null` | the koan warning's `ids` | `call`; `warning`: koan's warning, verbatim. |
+| `hook-failed` | A hook exited nonzero, was killed by a signal, or couldn't be started (see [Running hooks](#running-hooks)). The operation's change is made, and stays. | the unit the operation was about; for `delete`, the unit deleted | `[]` | `event`; `index`: the hook's position in the event's list, from `0`, disabled hooks counted, so it is the index in the hooks file; `command`; `description`, or `null`; `exit`: its exit status, `128+n` when signal `n` killed it, as a shell reports it, or `null` when it couldn't be started; `stderr`: the last 2,048 bytes of its stderr, as UTF-8 with invalid bytes replaced. |
+| `hook-timeout` | A hook was still running when its timeout passed, and was killed. | as `hook-failed`'s | `[]` | `event`; `index`; `command`; `description`, each as `hook-failed`'s; `timeout`: the seconds it had; `stderr`, as `hook-failed`'s. |
 
 ### Warning schema
 
@@ -239,6 +242,14 @@ with `recursive` `true` for [`list`](#list), and no `tags_all` for [`context`](#
 ### Deriving state
 
 A unit's `state` is `null` when its start or done task is `null`. Otherwise it is `done` when its done task's readiness is `done`, whatever its start task's; otherwise `started` when its start task's is; otherwise `not-started`.
+
+### Running hooks
+
+Every write runs the user's hooks, which the [hooks spec](hooks-spec.md) defines: the hooks file, the payload, and how one hook is run. This is what an operation does with them. Reads never read the hooks file.
+
+- **Before it changes anything,** right after [reading the rules](#reading-the-rules), a write reads the hooks file: `hooks.json` beside `shingi.toml` at its [location](design-spec.md#locations), wherever `--config` points. With no file there, there are no hooks, and nothing is checked. Otherwise all of it is checked, every event's hooks, in the order [When it is read](hooks-spec.md#when-it-is-read) gives (`invalid-hooks`, `unsupported-format`). The file is read this once: the hooks that run are the ones checked.
+- **After everything else,** once the operation has succeeded, it fires its event, named after it: it runs that event's hooks, in the file's order, skipping disabled ones, each as [Running a hook](hooks-spec.md#running-a-hook) says and each given the same [payload](hooks-spec.md#the-payload), which carries the operation's input as it was received, its `result`, and its own warnings. An operation that fails runs none, even one that made something first.
+- **A hook changes only `warnings`.** One that fails is `hook-failed`, one killed at its timeout is `hook-timeout`, and the hooks after it still run. The `result`, and that the operation succeeded, are what they would have been with no hooks.
 
 ## Shared schemas
 
@@ -687,7 +698,7 @@ Make one unit: its start and done tasks in koan, linked to its parent's, then it
 **Effects:**
 
 1. **Check,** changing nothing:
-   1. [Read the rules](#reading-the-rules).
+   1. [Read the rules](#reading-the-rules), then [the hooks file](#running-hooks).
    2. `path` is a [unit path](#unit-paths) (`invalid-name`) of at most 193 characters, so `Start: <path>` fits koan's 200-character title (`invalid-name`, `reason` `path-length`), and `kind` is defined (`unknown-kind`).
    3. With more than one segment, the parent, `path` without its last segment, [resolves](#resolving-a-path) (`parent-not-found`).
    4. List the parent's working folder, or the working root; a working root that doesn't exist yet has no entries. A directory with exactly the name that holds a `uow.json` is `unit-exists`. Any other entry whose name equals the new name, exactly or ignoring ASCII case, is `name-taken`: an existing folder becomes a unit only by [`adopt`](#adopt).
@@ -711,8 +722,9 @@ Make one unit: its start and done tasks in koan, linked to its parent's, then it
    2. Create `uow.md` exclusively: `# <title>` and a newline, then, with non-empty `notes`, a blank line and the notes, followed by a newline unless they already end in one.
    3. Write the manifest, `{ "schema": 1, "id": <id>, "kind": <kind> }`, in the [file format](design-spec.md#file-format): to a hidden temp file in the working folder, `.uow.json.<random>.tmp`, flushed, then hard-linked as `uow.json`, and the temp file removed. A link that fails because `uow.json` exists is `unit-exists`, with a `partial`. A temp file that can't be removed is left: it is hidden.
 6. **Report:** read the new unit as [`where`](#where) does, and return it with the warnings that read gives.
+7. **Run the hooks:** the `create` event's, as [Running hooks](#running-hooks) says, adding a warning for each that fails.
 
-`create` never removes or replaces anything, and never resumes: a failure after step 3 began, and before the manifest is linked, leaves what it made, listed in `partial`. Once the manifest is linked the unit exists, so an error from step 6 carries no `partial`: nothing is to be undone, and running `create` again is `unit-exists`.
+`create` never removes or replaces anything, and never resumes: a failure after step 3 began, and before the manifest is linked, leaves what it made, listed in `partial`. Once the manifest is linked the unit exists, so an error from step 6 carries no `partial`: nothing is to be undone, and running `create` again is `unit-exists`. Such an error runs no hooks, though the unit exists: they are run [by hand](hooks-spec.md#by-hand).
 
 **Output schema:**
 
@@ -735,6 +747,7 @@ Make one unit: its start and done tasks in koan, linked to its parent's, then it
 |---|---|
 | `invalid-input` | `path` or `kind` missing or not a string, an empty `title` or one with a line break, a NUL, or an unknown field. |
 | `invalid-rules`, `unsupported-format` | The rules file is unusable. |
+| `invalid-hooks`, `unsupported-format` | The hooks file is unusable. |
 | `invalid-name` | `path` breaks [Names](design-spec.md#names), or is over 193 characters. |
 | `unknown-kind` | `kind` is not defined. |
 | `parent-not-found` | The parent is not a unit. |
@@ -752,6 +765,7 @@ Make one unit: its start and done tasks in koan, linked to its parent's, then it
 | `parent-unlinked` | The parent's start or done task wasn't found; that link was left out. |
 | `koan-warning` | A koan call warned. |
 | any of [`where`](#where)'s | Reading the new unit back warned. |
+| `hook-failed`, `hook-timeout` | A hook failed, or ran past its timeout. The unit is made. |
 
 **Partial:** an error after `create` made something, and before the manifest is linked, carries what it made, for an agent or a person to undo (see [create](design-spec.md#create)). Absent when nothing was made, and once the unit exists.
 
@@ -792,8 +806,8 @@ Undo it in this order: `koan delete` each of `tasks`, which also takes the done 
 - After a `koan-failed` whose `error` is `null`, from making the tasks or linking the parent: an unclear outcome, below.
 - After any other error without `partial`: safe. Nothing was made, or the unit exists and running it again is `unit-exists`.
 - After an error with `partial`: undo what it lists first. Run again without undoing, `create` is `name-taken` when it had made the folder; when it hadn't, it makes a second pair of tasks, and the first pair are orphans that still block the parent's done task.
-- After success: running it again is `unit-exists`.
-- After a crash or an unclear outcome: not safe as it stands. Run [`list`](#list) on the parent, or with no unit for a top-level path: an `orphan-task` carrying a fresh `id` is what the crash left, to delete before running `create` again; a unit at the path means it succeeded.
+- After success: running it again is `unit-exists`, and runs no hooks. A hook that failed is run again [by hand](hooks-spec.md#by-hand), never by running `create` again.
+- After a crash or an unclear outcome: not safe as it stands. Run [`list`](#list) on the parent, or with no unit for a top-level path: an `orphan-task` carrying a fresh `id` is what the crash left, to delete before running `create` again; a unit at the path means it succeeded, though a crash while its hooks ran leaves the hooks after it not run.
 
 ### adopt
 
@@ -827,6 +841,7 @@ Make an existing folder a unit, leaving everything in it as it was: its start an
 - **Step 1.4:** a directory with exactly the name that holds a `uow.json` is `unit-exists`; one without is the working folder to adopt; no entry with exactly the name is `not-found` (`reason` `no-folder`), checked after `name-taken`. Any other entry whose name equals the new name, exactly or ignoring ASCII case, is `name-taken`.
 - **Step 5.1:** no folder is made.
 - **Step 5.2:** when the folder has no `uow.md`, create one exclusively: `# <title>` and a newline. When it has one, or one appears meanwhile, keep it, untouched.
+- **Step 7:** the `adopt` event's hooks are run.
 
 **Output schema:**
 
@@ -844,6 +859,7 @@ Make an existing folder a unit, leaving everything in it as it was: its start an
 |---|---|
 | `invalid-input` | As `create`'s, but `notes` is an unknown field. |
 | `invalid-rules`, `unsupported-format` | The rules file is unusable. |
+| `invalid-hooks`, `unsupported-format` | The hooks file is unusable. |
 | `invalid-name` | `path` breaks [Names](design-spec.md#names), or is over 193 characters. |
 | `unknown-kind` | `kind` is not defined. |
 | `parent-not-found` | The parent is not a unit. |
@@ -888,13 +904,14 @@ Make a unit a plain folder again: remove its koan folder, with every task in it,
 **Effects:**
 
 1. **Check,** changing nothing:
-   1. [Read the rules](#reading-the-rules).
+   1. [Read the rules](#reading-the-rules), then [the hooks file](#running-hooks).
    2. `unit` is a [unit path](#unit-paths) (`invalid-name`) and [resolves](#resolving-a-path) (`not-found`). Its manifest is not read: a unit whose manifest is unusable is deleted like any other.
    3. No folder directly in its working folder is a unit (`has-children`), as [Walking the tree](#walking-the-tree) finds them.
 2. **Remove the tasks.** Run koan `delete-folder` with `{ "folder": <koan folder>, "recursive": true }`. koan removes the folder, every task in it and under it, whoever made them, and takes those tasks out of every `blocked_by` outside it, so the parent's done task no longer waits on the unit. A koan folder that doesn't exist (koan's `not-found` whose `folders` names it) has nothing to remove, and is not an error. Any other failure is `koan-failed`, and the manifest stays.
 3. **Remove the manifest,** `uow.json`. One already gone is not an error. Nothing else in the working folder is touched: not `uow.md`, not a hidden temp file, not the folder itself.
+4. **Run the hooks:** the `delete` event's, as [Running hooks](#running-hooks) says, adding a warning for each that fails.
 
-The manifest goes last, so a `delete` that fails part-way leaves a unit: one [`list`](#list) reports, with `missing-task` when its tasks are gone, and `delete` can be run on again.
+The manifest goes last, so a `delete` that fails part-way leaves a unit: one [`list`](#list) reports, with `missing-task` when its tasks are gone, and `delete` can be run on again. It runs no hooks; the `delete` that then succeeds does, with a `result` that lists only what it removed itself.
 
 **Output schema:**
 
@@ -921,6 +938,7 @@ The manifest goes last, so a `delete` that fails part-way leaves a unit: one [`l
 |---|---|
 | `invalid-input` | `unit` missing or not a string, or an unknown field. |
 | `invalid-rules`, `unsupported-format` | The rules file is unusable. |
+| `invalid-hooks`, `unsupported-format` | The hooks file is unusable. |
 | `invalid-name` | `unit` breaks [Names](design-spec.md#names). |
 | `not-found` | `unit` is not a unit. |
 | `has-children` | The unit has child units. |
@@ -933,5 +951,6 @@ An `io` removing the manifest comes after the tasks are gone.
 | Kind | When |
 |---|---|
 | `koan-warning` | The koan call warned. |
+| `hook-failed`, `hook-timeout` | A hook failed, or ran past its timeout. The unit is deleted. |
 
-**Retry safety:** safe, after any error and any unclear outcome: what is already gone is not an error, and running it again removes the rest. After success, running it again is `not-found`: the folder is no longer a unit. [`adopt`](#adopt) makes it one again, with a new `id` and new tasks; the old tasks are not restored.
+**Retry safety:** safe, after any error and any unclear outcome: what is already gone is not an error, and running it again removes the rest. After success, running it again is `not-found`, and runs no hooks: the folder is no longer a unit. A crash while its hooks ran leaves the unit deleted and the hooks after it not run. [`adopt`](#adopt) makes it one again, with a new `id` and new tasks; the old tasks are not restored.

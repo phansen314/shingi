@@ -151,21 +151,21 @@ shingi where <unit> | jq -c --arg version "$(shingi version | jq -r .result.vers
 
 Only `warnings`. The command's `result`, its exit status, and whether it succeeded are what they would have been with no hooks: a failed hook never fails the command, since its change is already made.
 
-| Kind | When | `unit` | `ids` | `details` |
-|---|---|---|---|---|
-| `hook-failed` | The hook exited nonzero, was killed by a signal, or couldn't be started. | the unit the command was about; for `delete`, the path of the unit deleted | `[]` | `event`; `index`: its position in the event's list, from `0`, disabled hooks counted, so it is the index in the hooks file; `command`; `description`, or `null`; `exit`: its exit status, `128+n` when signal `n` killed it, as a shell reports it, or `null` when it couldn't be started; `stderr`: the last 2,048 bytes of its stderr, as UTF-8 with invalid bytes replaced. |
-| `hook-timeout` | The hook was still running when its timeout passed, and was killed. | the unit the command was about | `[]` | `event`; `index`; `command`; `description`; `timeout`: the seconds it had; `stderr`, as above. |
+| Kind | When |
+|---|---|
+| `hook-failed` | The hook exited nonzero, was killed by a signal, or couldn't be started. |
+| `hook-timeout` | The hook was still running when its timeout passed, and was killed. |
 
-They are sorted with the command's own warnings, by the [usual order](operations.md#warnings), hooks that tie keeping the order they ran in. That order puts every `hook-failed` before every `hook-timeout`; `index` says the order they ran in.
+Each one's `unit`, `ids`, and `details`, and where it sorts among the command's own warnings, are in operations.md's [Warnings](operations.md#warnings).
 
 ## Errors
 
-| Kind | Commands | When | `details` |
-|---|---|---|---|
-| `invalid-hooks` | `create`, `adopt`, `delete` | The hooks file can't be read, isn't JSON, or breaks [Fields](#fields). Nothing was changed. | `path`: the hooks file; `reason`: `unreadable`, `syntax`, or `invalid`; `problems`: for `invalid`, a `{field, reason}` list, `field` a JSON Pointer into the file (`/hooks/create/0/timeout`), sorted by `field`; otherwise empty. `code`: the symbolic OS error, for `unreadable`. |
-| `unsupported-format` | `create`, `adopt`, `delete` | The hooks file's `schema` is an integer shingi doesn't support. | As for the rules file: `path`, `schema`, `supported`. `path` says which file it is. |
+| Kind | Commands | When |
+|---|---|---|
+| `invalid-hooks` | `create`, `adopt`, `delete` | The hooks file can't be read, isn't JSON, or breaks [Fields](#fields). Nothing was changed. |
+| `unsupported-format` | `create`, `adopt`, `delete` | The hooks file's `schema` is an integer shingi doesn't support. Nothing was changed. |
 
-In each command's precedence, both come right after the rules file's checks: `invalid-input`, `invalid-rules`, `unsupported-format` (the rules), `invalid-hooks`, `unsupported-format` (the hooks), then the command's own. Within the hooks file, the order is the steps of [When it is read](#when-it-is-read), as it is for the rules: an unsupported `schema` is `unsupported-format` whatever else is wrong with the file's fields.
+Their `details` are in operations.md's [Error kinds](operations.md#error-kinds), and where they come among a command's other errors, right after the rules file's, in its [Precedence](operations.md#precedence).
 
 ## Trust
 
@@ -198,15 +198,16 @@ Each of these is a test, against the real `shingi` and a hooks file in a tempora
 - A hook past its timeout is `hook-timeout`, returns as soon as it passes, and a process it started in the background, in its group, is gone.
 - A hook that starts a background process without redirecting its output, and exits, returns at once.
 - A hook that never reads stdin, given a payload far over a pipe's buffer, doesn't block.
-- A hook that opens `/dev/tty` fails at once, rather than waiting out its timeout.
-- The [by-hand](#by-hand) recipe's payload has the same fields, of the same types, as the one shingi sends for the same unit.
+- With shingi run under a pseudo-terminal (Python's `pty`, or `script -q /dev/null shingi …`), a hook that opens `/dev/tty` fails at once, rather than waiting out its timeout. Run with no terminal at all, as CI and an agent's shell run it, the open fails whether or not the hook has its own session, and the test proves nothing.
+- For a unit created with no `title` and no `notes`, the [by-hand](#by-hand) recipe's payload has the same fields, of the same types, as the one shingi sent; `warnings` is compared by type only, since the recipe's is always `[]`.
 - A `timeout` of `1e999` is `invalid-hooks`, `invalid`; one of `NaN` or `Infinity`, which aren't JSON, is `invalid-hooks`, `syntax`.
 - Each problem in the hooks file is `invalid-hooks` with its field, and nothing is changed; an unsupported `schema` is `unsupported-format`; reads still work with a broken file.
 
 ## Changes to the other specs
 
-- **design-spec.md:** [Post-create hooks](design-spec.md#post-create-hooks) leaves Future work for a short section pointing here, which keeps its `## Log` convention; the "How shingi fits" table's hooks row loses "future work"; Problems gains `invalid-hooks`, `hook-failed`, and `hook-timeout`; `unsupported-format` covers the hooks file. The Claude Code adapter still carries no hooks of Claude Code's.
-- **operations.md:** a shared rule, Running hooks, pointing here; `create`, `adopt`, and `delete` gain a last effect, running their event's hooks, and the errors and warnings above; their Retry safety says that a crash while hooks run leaves the change made and the hooks after it not run.
+- **design-spec.md:** done. [Hooks](design-spec.md#hooks) replaces the Future work sketch, and keeps its `## Log` convention; Locations and Problems name the hooks file and the new kinds. The Claude Code adapter still carries no hooks of Claude Code's.
+- **operations.md:** done. It has the shared rule, [Running hooks](operations.md#running-hooks), the kinds' `details`, the precedence, and the hooks' place in `create`, `adopt`, and `delete`.
 - **cli-spec.md:** Exit codes' "Interrupts are crashes" gains the hook: shingi still dies of the signal, with no envelope, after killing the hook's process group.
 - **The skill:** report `hook-failed` and `hook-timeout` to the user, never run the command again for one (its change is made), and never write `hooks.json` unasked.
 - **README:** a Hooks section, with the file's location and the example.
+- **What moves out of here:** the test list moves to the implementation spec, when that is written; this spec then points to it.
