@@ -85,7 +85,7 @@ A `command` is quoted as a shell quotes: a path with a space in it, as macOS's c
 
 Every command that fires an event reads the hooks file after the rules and before it changes anything, and checks all of it, every event's hooks, not only its own:
 
-1. It can be read, as UTF-8 JSON, one object with no repeated key (`invalid-hooks`, `reason` `unreadable` or `syntax`).
+1. It can be opened and read (`invalid-hooks`, `reason` `unreadable`), and is UTF-8 JSON, one object, with no key repeated at any level (`syntax`). `NaN` and `Infinity` aren't JSON, and are `syntax` too.
 2. `schema` is present and an integer (`invalid`), and one shingi supports (`unsupported-format`).
 3. Every other field, as [Fields](#fields) says, each problem reported (`invalid`), disabled hooks' fields among them. A missing required field is reported at the field that is missing (`/hooks/create/0/command`).
 
@@ -126,7 +126,7 @@ The hooks for an event run one at a time, in the order the file lists them, skip
 - **The environment:** shingi's own, unchanged.
 - **stdin:** the payload, from a file, not a pipe, so a hook that never reads it never blocks shingi. Every hook reads it from its start, whatever the hooks before it read.
 - **stdout:** discarded. Nothing a hook prints reaches shingi's output, which stays one line of JSON.
-- **stderr:** kept, to a file, and its last 2,048 bytes reported if the hook fails.
+- **stderr:** kept, to a file, and its last 2,048 bytes reported if the hook fails or runs past its timeout.
 - **Its own Unix session, and so its own process group** (`setsid`). A timeout ends the hook and everything it started, and nothing of shingi's. With no terminal, a hook that tries to read from one fails at once, where one in shingi's own would be stopped and sit until its timeout.
 - **Waited for until it exits,** never until its output closes. A hook that starts something in the background and exits is done; the background process goes on, unwatched, and shingi returns.
 - **The timeout:** when it passes with the hook still running, shingi sends `SIGKILL` to the hook's process group, with no warning signal first, and reports `hook-timeout`.
@@ -193,7 +193,7 @@ Each of these is a test, against the real `shingi` and a hooks file in a tempora
 - No hooks file: commands behave as now, with no warnings.
 - Each event fires for its command, with the payload above; a failed command and a read fire nothing.
 - Hooks run in order; a disabled one is skipped; a failing one doesn't stop the next.
-- A hook's stdout never reaches shingi's; its stderr's tail is in `hook-failed`.
+- A hook's stdout never reaches shingi's; its stderr's tail is in `hook-failed`, and in `hook-timeout`.
 - Exit `3`, a command not found (`127`), and a hook killed by `SIGKILL` (`137`) are each `hook-failed`, with that `exit`.
 - A hook past its timeout is `hook-timeout`, returns as soon as it passes, and a process it started in the background, in its group, is gone.
 - A hook that starts a background process without redirecting its output, and exits, returns at once.
@@ -203,11 +203,11 @@ Each of these is a test, against the real `shingi` and a hooks file in a tempora
 - A `timeout` of `1e999` is `invalid-hooks`, `invalid`; one of `NaN` or `Infinity`, which aren't JSON, is `invalid-hooks`, `syntax`.
 - Each problem in the hooks file is `invalid-hooks` with its field, and nothing is changed; an unsupported `schema` is `unsupported-format`; reads still work with a broken file.
 
-## Changes to the other specs
+## In the other specs
 
-- **design-spec.md:** done. [Hooks](design-spec.md#hooks) replaces the Future work sketch, whose `## Log` convention is now in [The notes file](design-spec.md#the-notes-file); Locations and Problems name the hooks file and the new kinds. The Claude Code adapter still carries no hooks of Claude Code's.
-- **operations.md:** done. It has the shared rule, [Running hooks](operations.md#running-hooks), the kinds' `details`, the precedence, and the hooks' place in `create`, `adopt`, and `delete`.
-- **cli-spec.md:** Exit codes' "Interrupts are crashes" gains the hook: shingi still dies of the signal, with no envelope, after killing the hook's process group.
-- **The skill:** report `hook-failed` and `hook-timeout` to the user, never run the command again for one (its change is made), and never write `hooks.json` unasked.
+- **design-spec.md:** a summary, [Hooks](design-spec.md#hooks); the hooks file in Locations; the new kinds in Problems. The `## Log` convention a hook follows is in [The notes file](design-spec.md#the-notes-file).
+- **operations.md:** the shared rule, [Running hooks](operations.md#running-hooks); the kinds' `details`, sorting, and precedence; and the hooks' place in `create`, `adopt`, and `delete`, with their Retry safety.
+- **cli-spec.md:** that a hook writes nothing to shingi's output, in [Output](cli-spec.md#output); what an interrupt does to one, in [Exit codes](cli-spec.md#exit-codes); that `--config` doesn't move the hooks file; and, in Not included, that nothing skips hooks for one command.
+- **The skill:** report `hook-failed` and `hook-timeout` to the user, never run the command again for one, and never write `hooks.json` unasked.
 - **README:** a Hooks section, with the file's location and the example.
-- **What moves out of here:** the test list moves to the implementation spec, when that is written; this spec then points to it.
+- **Still to move:** the test list goes to the implementation spec, when that is written; this spec then points to it.

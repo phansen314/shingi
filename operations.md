@@ -107,7 +107,7 @@ Every operation returns one of two shapes:
 
 ### Precedence
 
-Each operation's Errors table lists its checks in the order it makes them, and an error is the first check that fails. For every operation but `version`, the first three are always `invalid-input`, `invalid-rules`, and `unsupported-format`; the rules file is checked as [Reading the rules](#reading-the-rules) says. For a write, the hooks file's two come next, `invalid-hooks` and `unsupported-format`, in the order of the checks [Running hooks](#running-hooks) names: an unsupported `schema` is `unsupported-format` whatever else is wrong with the file's fields, as it is for the rules.
+Each operation's Errors table lists its checks in the order it makes them, and an error is the first check that fails. For every operation but `version`, the first three are always `invalid-input`, `invalid-rules`, and `unsupported-format`; the rules file is checked as [Reading the rules](#reading-the-rules) says. For a write, the hooks file's two come next, `invalid-hooks` and `unsupported-format`, in the order of the hooks spec's checks, in [When it is read](hooks-spec.md#when-it-is-read): an unsupported `schema` is `unsupported-format` whatever else is wrong with the file's fields, as it is for the rules.
 
 ### Error schema
 
@@ -146,7 +146,7 @@ A warning is a problem an operation told and went on past. It never changes the 
 | `parent-unlinked` | The parent's start or done task could not be found, so that link was left out. | the new unit | `[]` | `parent`; `role`: `start` or `done`; `reason`: `unsupported-manifest` or `missing-task`. |
 | `koan-failed` | koan could not be run, or returned an error, while reading tasks; every task is `null`. | the unit read, or `null` from `list` | `[]` | As the [error](#error-kinds). |
 | `koan-warning` | A koan call succeeded with a warning of its own. An unusable task file can hide a start or done task, so while one is present, `missing-task`, `orphan-task`, or `parent-unlinked` may be wrong. | `null` | the koan warning's `ids` | `call`; `warning`: koan's warning, verbatim. |
-| `hook-failed` | A hook exited nonzero, was killed by a signal, or couldn't be started (see [Running hooks](#running-hooks)). The operation's change is made, and stays. | the unit the operation was about; for `delete`, the unit deleted | `[]` | `event`; `index`: the hook's position in the event's list, from `0`, disabled hooks counted, so it is the index in the hooks file; `command`; `description`, or `null`; `exit`: its exit status, `128+n` when signal `n` killed it, as a shell reports it, or `null` when it couldn't be started; `stderr`: the last 2,048 bytes of its stderr, as UTF-8 with invalid bytes replaced. |
+| `hook-failed` | A hook exited nonzero, was killed by a signal, or couldn't be started (see [Running hooks](#running-hooks)). The operation's change is made, and stays. | the unit the operation was about; for `delete`, the unit deleted | `[]` | `event`; `index`: the hook's position in the event's list, from `0`, disabled hooks counted, so it is the index in the hooks file; `command`; `description`, or `null`; `exit`: its exit status, `128+n` when signal `n` killed it, as a shell reports it, or `null` when it couldn't be started; `stderr`: the last 2,048 bytes of its stderr, as UTF-8 with invalid bytes replaced; `""` when it wrote none, or couldn't be started. |
 | `hook-timeout` | A hook was still running when its timeout passed, and was killed. | as `hook-failed`'s | `[]` | `event`; `index`; `command`; `description`, each as `hook-failed`'s; `timeout`: the seconds it had; `stderr`, as `hook-failed`'s. |
 
 ### Warning schema
@@ -722,7 +722,7 @@ Make one unit: its start and done tasks in koan, linked to its parent's, then it
    2. Create `uow.md` exclusively: `# <title>` and a newline, then, with non-empty `notes`, a blank line and the notes, followed by a newline unless they already end in one.
    3. Write the manifest, `{ "schema": 1, "id": <id>, "kind": <kind> }`, in the [file format](design-spec.md#file-format): to a hidden temp file in the working folder, `.uow.json.<random>.tmp`, flushed, then hard-linked as `uow.json`, and the temp file removed. A link that fails because `uow.json` exists is `unit-exists`, with a `partial`. A temp file that can't be removed is left: it is hidden.
 6. **Report:** read the new unit as [`where`](#where) does, and return it with the warnings that read gives.
-7. **Run the hooks:** the `create` event's, as [Running hooks](#running-hooks) says, adding a warning for each that fails.
+7. **Run the hooks:** the `create` event's, as [Running hooks](#running-hooks) says, adding a warning for each that fails or runs past its timeout.
 
 `create` never removes or replaces anything, and never resumes: a failure after step 3 began, and before the manifest is linked, leaves what it made, listed in `partial`. Once the manifest is linked the unit exists, so an error from step 6 carries no `partial`: nothing is to be undone, and running `create` again is `unit-exists`. Such an error runs no hooks, though the unit exists: they are run [by hand](hooks-spec.md#by-hand).
 
@@ -909,7 +909,7 @@ Make a unit a plain folder again: remove its koan folder, with every task in it,
    3. No folder directly in its working folder is a unit (`has-children`), as [Walking the tree](#walking-the-tree) finds them.
 2. **Remove the tasks.** Run koan `delete-folder` with `{ "folder": <koan folder>, "recursive": true }`. koan removes the folder, every task in it and under it, whoever made them, and takes those tasks out of every `blocked_by` outside it, so the parent's done task no longer waits on the unit. A koan folder that doesn't exist (koan's `not-found` whose `folders` names it) has nothing to remove, and is not an error. Any other failure is `koan-failed`, and the manifest stays.
 3. **Remove the manifest,** `uow.json`. One already gone is not an error. Nothing else in the working folder is touched: not `uow.md`, not a hidden temp file, not the folder itself.
-4. **Run the hooks:** the `delete` event's, as [Running hooks](#running-hooks) says, adding a warning for each that fails.
+4. **Run the hooks:** the `delete` event's, as [Running hooks](#running-hooks) says, adding a warning for each that fails or runs past its timeout.
 
 The manifest goes last, so a `delete` that fails part-way leaves a unit: one [`list`](#list) reports, with `missing-task` when its tasks are gone, and `delete` can be run on again. It runs no hooks; the `delete` that then succeeds does, with a `result` that lists only what it removed itself.
 

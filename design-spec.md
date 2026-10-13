@@ -11,7 +11,7 @@ Give every piece of work on this machine one name and one place. A **unit of wor
 - **Refuse only at `create`; after that, tell.** `create` (and [`adopt`](#adopt), its twin for an existing folder) refuses only what would make a new unit wrong from the start — a name koan or a sibling rules out, a missing parent, a kind the rules don't define — and never how units nest: any kind may hold any kind. After that, `where` and `list` warn about what they find and fix nothing. Fixing is for a person or an agent, and cheap when someone notices.
 - **Follow koan.** Wherever shingi and koan meet — names, the output envelope, exit codes, file formats, format versions — shingi does what koan does, so one habit covers both, and koan's specs give the detail this one leaves out.
 
-shingi is one command, `shingi`: a Python 3.11+ package with no dependencies outside the standard library (see [Installing](#installing)). Its commands are [`where`](#where), [`context`](#context), [`list`](#list), [`create`](#create), [`adopt`](#adopt), [`kinds`](#kinds-1), and [`version`](#version).
+shingi is one command, `shingi`: a Python 3.11+ package with no dependencies outside the standard library (see [Installing](#installing)). Its commands are [`where`](#where), [`context`](#context), [`list`](#list), [`create`](#create), [`adopt`](#adopt), [`delete`](#delete), [`kinds`](#kinds-1), and [`version`](#version).
 
 ## How shingi fits
 
@@ -346,6 +346,7 @@ Read-only, derived each time from what shingi already reads — its own files, a
 2. **Set up koan.** Make the unit's `id`, a fresh UUID. One `koan create-batch` makes the koan folder and the unit's [start and done tasks](#start-and-done-tasks): the start task, blocked by the parent's start task, and the done task, blocked by the start task. Then `koan block` adds the done task to the parent's done task's blockers, unless that task is already done, which is warned as [`parent-done`](#problems) and left alone. The parent's tasks are found by its `id`, as `where` finds them, before anything is made. Each link is made or left out on its own: when the parent's start task, or its done task, can't be found — the parent's `id` is unreadable, or no task carries it — that link is left out and warned as [`parent-unlinked`](#problems), never guessed, and the other is still made.
 3. **Write the files.** Make the working folder, write `uow.md`, then write the manifest, with its `id`. The unit exists from this moment, and not before.
 4. **Report.** Read the new unit back as `where` does, passing on any warning that read gives.
+5. **Run the hooks.** The user's [hooks](#hooks) for `create`, each told what was made. One that fails is a warning: the unit is made, and stays.
 
 `create` never resumes. One that fails after making something, before the manifest is written, is an error with `partial`; once the manifest is written the unit exists, and an error after that carries no `partial`:
 
@@ -376,7 +377,7 @@ Everything said of `create` holds for `adopt`, but for the working folder:
 - **It refuses a unit with child units** ([`has-children`](#problems)): delete the leaves first. One mistyped path never takes out a subtree.
 - **The path is always given.** There is no deleting the unit the current directory is in.
 - **It is not for work that was cancelled or finished.** That unit keeps its history: mark its done task done, with the reason in the task's notes. `delete` is for a unit that should never have been.
-- **Safe to run again.** The tasks go first and the manifest last, so a `delete` that fails part-way leaves a unit that `list` still reports, and a second `delete` finishes.
+- **Safe to run again.** The tasks go first and the manifest last, so a `delete` that fails part-way leaves a unit that `list` still reports, and a second `delete` finishes. Only the `delete` that succeeds runs the [hooks](#hooks).
 
 Corrected and made again: `delete`, then `adopt` the same folder with the right kind, keeps the notes; `delete`, `mv` the folder, then `adopt` it at the new path moves a unit that has no children.
 
@@ -453,7 +454,7 @@ A story with seven branches in `foo` and one in `bar` is one `create … group` 
 
 ### Claude Code
 
-A Claude Code plugin, served from this repository as koan's and sesshin's are, carrying one skill and no hooks. The skill teaches the hierarchy and the kinds; to ask `shingi where` instead of composing a path; the [front-end](#front-ends) steps for creating units; how to do a setup task and where in `uow.md` to record what it decided, so every unit's notes say where its code is in the same form; how to clean up after a `create` that failed, by undoing what its `partial` lists, or after an `orphan-task` warning; when to `delete` a unit, one made by mistake, and when to finish it instead, and to ask before deleting; and how to coordinate:
+A Claude Code plugin, served from this repository as koan's and sesshin's are, carrying one skill and no Claude Code hooks. The skill teaches the hierarchy and the kinds; to ask `shingi where` instead of composing a path; the [front-end](#front-ends) steps for creating units; how to do a setup task and where in `uow.md` to record what it decided, so every unit's notes say where its code is in the same form; how to clean up after a `create` that failed, by undoing what its `partial` lists, or after an `orphan-task` warning; when to `delete` a unit, one made by mistake, and when to finish it instead, and to ask before deleting; and how to coordinate:
 
 - **A coordinator** starts in a parent unit's working folder and runs `shingi list <unit>` for its picture of the work: each unit's koan folder, and its notes for the worktree to start a session in. Its decisions are the shingi tasks on the frontier: `koan frontier --folder <koan folder> --tags-all shingi` is every unit under it ready to begin or to close; closing a parent whose children are all done is its job. The session's job is the coordinator's to choose.
 - **A worker** is spawned with `run shingi context <its unit>` in its first prompt, since it starts in a worktree whose `CLAUDE.md` is the repository's, not the unit's, and where `shingi` can't find its unit from the current directory. Its next task is `koan frontier --folder <its koan folder> --recursive=false`: its own unit's, never a child's. When that is its unit's start task, the unit hasn't been begun, and the worker stops and says so rather than marking it. It marks no task tagged `shingi` but its own unit's done task, and that only when it was asked to finish the unit.
@@ -471,7 +472,7 @@ The same skill, linked into OpenCode's skills directory as koan's is, and the sa
 
 ## Format versions
 
-`shingi.toml` and every `uow.json` carry `schema`, each versioned on its own. A rules file with a `schema` shingi doesn't support is an error for every command but `version`; an unsupported manifest is a warning from `where` and `list`, which still report the unit (see [Problems](#problems)). Before 1.0, as koan's and sesshin's formats, a schema may change in place: a change bumps shingi's minor version, and its release notes say how to update existing files. Kinds are configuration: adding, changing, or removing one is never a schema change.
+`shingi.toml`, `hooks.json`, and every `uow.json` carry `schema`, each versioned on its own. A rules file with a `schema` shingi doesn't support is an error for every command but `version`; a hooks file with one, for `create`, `adopt`, and `delete`; an unsupported manifest is a warning from `where` and `list`, which still report the unit (see [Problems](#problems)). Before 1.0, as koan's and sesshin's formats, a schema may change in place: a change bumps shingi's minor version, and its release notes say how to update existing files. Kinds are configuration: adding, changing, or removing one is never a schema change.
 
 ## Future work
 
