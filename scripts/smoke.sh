@@ -247,6 +247,17 @@ check "its parent, which the top unit waited on" 0 '.result.unblocked == ['"$p_d
 check "nothing left over" 0 '[.result.units[].path] == ["HOME-1", "HOME-1/a"] and .warnings == []' -- list HOME-1
 check "adopt brings it back" 0 '.result.unit | .path == "HOME-1/b" and .kind == "group"' -- adopt HOME-1/b group
 
+echo "== hooks"
+cat >"$XDG_CONFIG_HOME/shingi/hooks.json" <<'EOF'
+{ "schema": 1, "hooks": { "create": [{ "command": "echo nope >&2; exit 3", "description": "smoke" }] } }
+EOF
+check "a failing hook is a warning, and create succeeds" 0 '.result.unit.path == "HOME-8" and [.warnings[] | .kind, .details.exit, .details.stderr] == ["hook-failed", 3, "nope\n"]' -- create HOME-8 group
+echo '{' >"$XDG_CONFIG_HOME/shingi/hooks.json"
+check "a broken hooks file stops create" 1 '.error.kind == "invalid-hooks"' -- create HOME-9 group
+expect "and made nothing" '[[ ! -e $HOME/shingi-root/HOME-9 ]]'
+check "reads ignore it" 0 '.ok' -- where HOME-8
+rm "$XDG_CONFIG_HOME/shingi/hooks.json"
+
 echo
 echo "$pass passed, $fail failed"
 [[ $fail -eq 0 ]]
