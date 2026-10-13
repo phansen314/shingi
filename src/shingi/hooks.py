@@ -1,6 +1,7 @@
 """The hooks file, hooks.json, and running an event's hooks (see hooks-spec.md)."""
 
 import errno
+import math
 import os
 import subprocess
 import tempfile
@@ -12,7 +13,7 @@ from shingi import envelope, rules, units
 from shingi.envelope import OperationError
 
 EVENTS = ("create", "adopt", "delete")
-HOOK = {"command"}  # slice 1: no other hook field yet
+HOOK = {"command", "timeout", "description", "disabled"}
 DEFAULT_TIMEOUT = 10
 STDERR_TAIL = 2048
 
@@ -90,7 +91,7 @@ def load():
 
 
 def check_hook(hook, field, problems):
-    """The Hook `hook` describes, adding each problem found to `problems`."""
+    """The Hook `hook` describes, adding each problem found to `problems`; with any, it isn't used."""
     if not isinstance(hook, dict):
         problems.append(rules.problem(field, "must be an object"))
         return None
@@ -100,8 +101,28 @@ def check_hook(hook, field, problems):
     command = hook.get("command")
     if not isinstance(command, str) or command == "" or "\0" in command:
         problems.append(rules.problem(field + "/command", "required: a non-empty string with no NUL"))
+    given = hook.get("timeout", DEFAULT_TIMEOUT)
+    timeout = timeout_seconds(given)
+    if timeout is None:
+        problems.append(rules.problem(field + "/timeout", "must be a finite number above 0"))
+    description = hook.get("description")
+    if "description" in hook and not isinstance(description, str):
+        problems.append(rules.problem(field + "/description", "must be a string"))
+    disabled = hook.get("disabled", False)
+    if not isinstance(disabled, bool):
+        problems.append(rules.problem(field + "/disabled", "must be a boolean"))
+    return Hook(command, timeout, given, description, disabled)
+
+
+def timeout_seconds(value):
+    """`value` as the seconds to wait, or None unless it is a finite number above 0."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    return Hook(command)
+    try:
+        seconds = float(value)  # an integer too large for a float raises OverflowError
+    except OverflowError:
+        return None
+    return seconds if math.isfinite(seconds) and seconds > 0 else None
 
 
 def pointer(*keys):
