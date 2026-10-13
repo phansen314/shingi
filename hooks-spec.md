@@ -2,13 +2,12 @@
 
 ## Goals
 
-Let a user run their own commands when shingi changes the tree, so what a kind, a machine, or a workflow needs set up happens without shingi knowing what it is: a `branch` unit's setup task added, a template copied, a coordinator told. shingi makes the structure; hooks do the rest.
+Let a user run their own commands when shingi changes the tree, so what a kind, a machine, or a workflow needs set up happens without shingi knowing what it is: a template copied into a `branch` unit's working folder, a line added to its log, a coordinator told. shingi makes the structure; hooks do the rest.
 
 - **Notifications, after the fact.** A hook runs once a command has succeeded, and is told what it did. It can't stop the command, change it, or change its result.
 - **Simple, and always the same.** Every hook runs synchronously, in the order configured, with a timeout. There is no asynchronous mode, no matching, and no output a hook can return. A hook that wants more does it itself.
 - **Seen, never silent.** A hook that fails or runs too long is a warning in the command's envelope. A hooks file shingi can't use stops every command that would run hooks, before it changes anything.
-- **The user's own.** Hooks are commands the user wrote into their own config. shingi runs them as given; whether they are safe to run twice, whether they call shingi or koan again, and what they touch are the user's to decide.
-- **Shared with koan.** The rules here, but for the events and the payload's `input` and `result`, are tool-agnostic, so koan can run hooks the same way, and one habit covers both.
+- **The user's own.** Hooks are commands the user wrote into their own config. shingi runs them as given; whether they are safe to run twice, whether they call shingi again, and what they touch are the user's to decide.
 
 ## Non-goals
 
@@ -17,6 +16,7 @@ Let a user run their own commands when shingi changes the tree, so what a kind, 
 - **Matchers.** Every hook for an event runs for every command that fires it, and filters for itself, with `jq` on its input. A matcher (a kind, a path prefix) is added only if starting hooks that do nothing is ever noticeably slow.
 - **Retries.** shingi runs each hook once. A failed hook is told; running it again is the user's (see [By hand](#by-hand)).
 - **Guarding against loops.** A hook that runs `shingi create`, whose hook runs `shingi create` again, loops until something fails. Keeping hooks from that is the user's.
+- **Serializing hooks across commands.** Two shingi commands run at the same time run their hooks at the same time. A hook that can't share what it touches with another copy of itself takes its own lock.
 - **Sandboxing.** A hook runs with the user's permissions, as anything else they run.
 
 ## Terms
@@ -54,7 +54,7 @@ JSON, not TOML as the rules file is, since tools write it as well as people: an 
       {
         "command": "~/bin/branch-setup.sh",
         "timeout": 30,
-        "description": "Add a branch unit's setup task"
+        "description": "Give a branch unit a plan.md from a template"
       },
       { "command": "~/bin/notify-ino" }
     ],
@@ -72,7 +72,7 @@ JSON, not TOML as the rules file is, since tools write it as well as people: an 
 | `schema` | integer | The file's format version. Required; shingi 0.x supports `1`. |
 | `hooks` | object | Each key an event, each value that event's hooks, in the order they run. Optional; default `{}`. |
 | `hooks.<event>[].command` | non-empty string | Run by `/bin/sh -c`, so `~`, arguments, and pipes work as in a shell. Required. |
-| `hooks.<event>[].timeout` | number > 0 | Seconds the hook may run. Optional; default `10`. No upper limit. |
+| `hooks.<event>[].timeout` | finite number > 0 | Seconds the hook may run. Optional; default `10`. No upper limit, but one that reads as infinite, such as `1e999`, is an error. |
 | `hooks.<event>[].description` | string | What the hook is for, since JSON has no comments. Optional; repeated in its warnings. |
 | `hooks.<event>[].disabled` | boolean | `true` skips the hook, as commenting it out would. Optional; default `false`. |
 
@@ -109,7 +109,7 @@ What every hook reads on stdin, one line of JSON in the envelope's encoding, end
 | Field | Meaning |
 |---|---|
 | `schema` | The payload's format version, `1`. |
-| `tool` | `shingi`. koan's payloads say `koan`, so one hook can serve both. |
+| `tool` | `shingi`, so a hook that other tools run too knows which ran it. |
 | `version` | shingi's version, as `shingi version` reports it. |
 | `event` | The event. |
 | `input` | The command's input as the operation received it: the fields the command line set, or `-i`'s object, so a hook sees the same shape either way. Defaults are not filled in. |
@@ -126,10 +126,10 @@ The hooks for an event run one at a time, in the order the file lists them, skip
 - **stdin:** the payload, from a file, not a pipe, so a hook that never reads it never blocks shingi. Every hook reads it from its start, whatever the hooks before it read.
 - **stdout:** discarded. Nothing a hook prints reaches shingi's output, which stays one line of JSON.
 - **stderr:** kept, to a file, and its last 2,048 bytes reported if the hook fails.
-- **Its own process group,** so a timeout ends the hook and everything it started, and nothing of shingi's.
+- **Its own Unix session, and so its own process group** (`setsid`). A timeout ends the hook and everything it started, and nothing of shingi's. With no terminal, a hook that tries to read from one fails at once, where one in shingi's own would be stopped and sit until its timeout.
 - **Waited for until it exits,** never until its output closes. A hook that starts something in the background and exits is done; the background process goes on, unwatched, and shingi returns.
 - **The timeout:** when it passes with the hook still running, shingi sends `SIGKILL` to the hook's process group, with no warning signal first, and reports `hook-timeout`.
-- **An interrupt:** shingi killed by `SIGINT`, `SIGTERM`, or `SIGHUP` while a hook runs sends `SIGKILL` to the hook's process group, then dies of the same signal, as it would have (see [Exit codes](cli-spec.md#exit-codes)). The hooks after it don't run.
+- **An interrupt:** shingi killed by `SIGINT`, `SIGTERM`, or `SIGHUP` while a hook runs sends `SIGKILL` to the hook's process group, then dies of the same signal, as it would have (see [Exit codes](cli-spec.md#exit-codes)). The hooks after it don't run. A shingi killed by `SIGKILL`, or one that crashes, kills nothing: its hook runs on, with nothing watching it or its timeout.
 
 A hook that exits `0` succeeded. Anything else is a warning, and the next hook still runs.
 
@@ -139,8 +139,12 @@ shingi has no command that runs a hook again. A hook that failed, or never ran, 
 
 ```sh
 shingi where <unit> | jq -c --arg version "$(shingi version | jq -r .result.version)" \
-	'{schema: 1, tool: "shingi", version: $version, event: "create", input: {}, result: {unit: .result}, warnings: []}' | <hook>
+	'{schema: 1, tool: "shingi", version: $version, event: "create", input: {path: .result.path, kind: .result.kind}, result: {unit: .result}, warnings: []}' | <hook>
 ```
+
+- **`input`** has the two fields `create` and `adopt` always have. `title` and `notes` are absent, as when the command was given neither.
+- **`event`** is `adopt` for a unit that was adopted.
+- **A `delete` hook** can't be run this way: the unit is gone, and `where` can't find it. Its payload is made from the `delete`'s own envelope, whose `result` is the payload's, with `input` `{ "unit": <its path> }`.
 
 ## What a hook changes in the envelope
 
@@ -164,29 +168,22 @@ In each command's precedence, both come right after the rules file's checks: `in
 
 ## Trust
 
-A hook is a command the user put in their own config, run with their permissions, as a git hook is. Two consequences are worth knowing:
-
-- **An agent's command runs your hooks.** When an agent runs `shingi create`, Claude Code's permission prompt covers the `shingi create`, not the hooks it then runs. A hook that does something an agent shouldn't trigger shouldn't be in the hooks file.
-- **koan's hooks run too.** `create`, `adopt`, and `delete` run koan, and once koan has hooks, a `shingi create` or `adopt` also fires koan's `create-batch` and `block`, and a `shingi delete` koan's `delete-folder`. shingi's tasks carry the tag `shingi`, which a koan hook can test for.
+A hook is a command the user put in their own config, run with their permissions, as a git hook is. One consequence is worth knowing: **an agent's command runs your hooks.** When an agent runs `shingi create`, Claude Code's permission prompt covers the `shingi create`, not the hooks it then runs. A hook that does something an agent shouldn't trigger shouldn't be in the hooks file.
 
 ## An example
 
-A `create` hook that gives every new `branch` unit its setup task, wired between its start and done tasks [by convention](design-spec.md#start-and-done-tasks):
+A `create` hook that gives every new `branch` unit a plan to fill in, copied from a template:
 
 ```sh
 #!/bin/sh
-# branch-setup.sh: give a new branch unit its setup task, between its start and done tasks.
+# branch-setup.sh: give a new branch unit a plan.md, from a template.
 unit=$(jq -c .result.unit)
 [ "$(printf '%s' "$unit" | jq -r .kind)" = branch ] || exit 0
-folder=$(printf '%s' "$unit" | jq -r .koan_folder)
-id=$(koan list --folder "$folder" --recursive=false --tags-all branch-setup --readiness ready,blocked,done |
-	jq -r '.result.tasks[0].id // empty')      # made already?
-[ -n "$id" ] || id=$(koan create "Set up: $(printf '%s' "$unit" | jq -r .path)" --folder "$folder" --tags branch-setup \
-	--blocked-by "$(printf '%s' "$unit" | jq -r .start.id)" | jq -er .result.task.id) || exit 1
-koan block "$(printf '%s' "$unit" | jq -r .done.id)" --blockers "$id" >/dev/null
+plan=$(printf '%s' "$unit" | jq -r .working_folder)/plan.md
+[ -e "$plan" ] || cp ~/templates/branch-plan.md "$plan"      # never over one already there
 ```
 
-It filters on its own input, does nothing for other kinds, and looks for its task before making it, so running it twice does no harm, and a run that failed part-way is finished by the next: the kind of care this spec leaves to the hook. Listed under `adopt` as well, it does the same for an adopted folder.
+It filters on its own input, does nothing for other kinds, and looks before it writes, so running it twice does no harm: the kind of care this spec leaves to the hook. Listed under `adopt` as well, it does the same for an adopted folder.
 
 ## How it is tested
 
@@ -206,6 +203,6 @@ Each of these is a test, against the real `shingi` and a hooks file in a tempora
 
 - **design-spec.md:** [Post-create hooks](design-spec.md#post-create-hooks) leaves Future work for a short section pointing here, which keeps its `## Log` convention; the "How shingi fits" table's hooks row loses "future work"; Problems gains `invalid-hooks`, `hook-failed`, and `hook-timeout`; `unsupported-format` covers the hooks file. The Claude Code adapter still carries no hooks of Claude Code's.
 - **operations.md:** a shared rule, Running hooks, pointing here; `create`, `adopt`, and `delete` gain a last effect, running their event's hooks, and the errors and warnings above; their Retry safety says that a crash while hooks run leaves the change made and the hooks after it not run.
-- **cli-spec.md:** Exit codes' "Interrupts are crashes" gains the hook: shingi still dies of the signal, with no envelope, after killing the hook's process group, where a koan call is left to finish.
+- **cli-spec.md:** Exit codes' "Interrupts are crashes" gains the hook: shingi still dies of the signal, with no envelope, after killing the hook's process group.
 - **The skill:** report `hook-failed` and `hook-timeout` to the user, never run the command again for one (its change is made), and never write `hooks.json` unasked.
 - **README:** a Hooks section, with the file's location and the example.
