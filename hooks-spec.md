@@ -188,20 +188,7 @@ It filters on its own input, does nothing for other kinds, and looks before it w
 
 ## How it is tested
 
-Each of these is a test, against the real `shingi` and a hooks file in a temporary config directory:
-
-- No hooks file: commands behave as now, with no warnings.
-- Each event fires for its command, with the payload above; a failed command and a read fire nothing.
-- Hooks run in order; a disabled one is skipped; a failing one doesn't stop the next.
-- A hook's stdout never reaches shingi's; its stderr's tail is in `hook-failed`, and in `hook-timeout`.
-- Exit `3`, a command not found (`127`), and a hook killed by `SIGKILL` (`137`) are each `hook-failed`, with that `exit`.
-- A hook past its timeout is `hook-timeout`, returns as soon as it passes, and a process it started in the background, in its group, is gone.
-- A hook that starts a background process without redirecting its output, and exits, returns at once.
-- A hook that never reads stdin, given a payload far over a pipe's buffer, doesn't block.
-- With shingi run under a pseudo-terminal (Python's `pty`, or `script -q /dev/null shingi …`), a hook that opens `/dev/tty` fails at once, rather than waiting out its timeout. Run with no terminal at all, as CI and an agent's shell run it, the open fails whether or not the hook has its own session, and the test proves nothing.
-- For a unit created with no `title` and no `notes`, the [by-hand](#by-hand) recipe's payload has the same fields, of the same types, as the one shingi sent; `warnings` is compared by type only, since the recipe's is always `[]`.
-- A `timeout` of `1e999` is `invalid-hooks`, `invalid`; one of `NaN` or `Infinity`, which aren't JSON, is `invalid-hooks`, `syntax`.
-- Each problem in the hooks file is `invalid-hooks` with its field, and nothing is changed; an unsupported `schema` is `unsupported-format`; reads still work with a broken file.
+Against the real `shingi`, with a hooks file in a temporary config directory, one test for each rule here. The tests are listed in the implementation spec's [Tests](hooks-impl-spec.md#tests).
 
 ## In the other specs
 
@@ -210,4 +197,4 @@ Each of these is a test, against the real `shingi` and a hooks file in a tempora
 - **cli-spec.md:** that a hook writes nothing to shingi's output, in [Output](cli-spec.md#output); what an interrupt does to one, in [Exit codes](cli-spec.md#exit-codes); that `--config` doesn't move the hooks file; and, in Not included, that nothing skips hooks for one command.
 - **The skill:** report `hook-failed` and `hook-timeout` to the user, never run the command again for one, and never write `hooks.json` unasked.
 - **README:** a Hooks section, with the file's location and the example.
-- **Still to move:** the test list goes to the implementation spec, when that is written; this spec then points to it.
+- **[hooks-impl-spec.md](hooks-impl-spec.md):** where each part goes in the code, the tests, and the order it is built in.
