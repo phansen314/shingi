@@ -363,6 +363,51 @@ class EventsTest(ShingiTestCase):
         self.assertEqual(warning["details"]["event"], "delete")
 
 
+class InterruptTest(ShingiTestCase):
+    def wait_for(self, path, timeout=10):
+        deadline = time.monotonic() + timeout
+        while not path.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(path.exists(), f"{path} never appeared")
+
+    def gone(self, pid_file):
+        pid = int(pid_file.read_text())
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return True
+            time.sleep(0.05)
+        return False
+
+    def test_an_interrupt_kills_the_hook_and_shingi_dies_of_the_signal(self):
+        for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            with self.subTest(signal=signum.name):
+                name = f"HOME-{int(signum)}"
+                hook_pid, background, ran = (self.tmp / f"{name}.{x}" for x in ("hook", "bg", "ran"))
+                for path in (hook_pid, background, ran):
+                    path.unlink(missing_ok=True)
+                first = self.hook(f"echo $$ > {hook_pid}\nsleep 60 & echo $! > {background}\nsleep 60\n")
+                self.write_hooks(create=[{"command": first}, {"command": f"touch {ran}"}])
+                proc = subprocess.Popen(
+                    ["shingi", "create", name, "group", "--config", str(self.config)],
+                    env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                )
+                try:
+                    self.wait_for(background)
+                    proc.send_signal(signum)
+                    out, err = proc.communicate(timeout=10)
+                finally:
+                    proc.kill()
+                self.assertEqual(proc.returncode, -signum)
+                self.assertEqual((out, err), (b"", b""))
+                self.assertTrue(self.gone(hook_pid))
+                self.assertTrue(self.gone(background))
+                self.assertFalse(ran.exists())
+                self.assertEqual(self.shingi("where", name)[0], 0)  # the unit exists
+
+
 class ByHandTest(ShingiTestCase):
     """The recipe in the hooks spec, run as written."""
 

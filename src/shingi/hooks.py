@@ -17,6 +17,9 @@ EVENTS = ("create", "adopt", "delete")
 HOOK = {"command", "timeout", "description", "disabled"}
 DEFAULT_TIMEOUT = 10
 STDERR_TAIL = 2048
+INTERRUPTS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+
+running = None  # the running hook's process ID, which is also its process group's
 
 
 @dataclass
@@ -150,16 +153,34 @@ def run(hooks, event, inp, result, warnings, unit):
     with tempfile.TemporaryDirectory(prefix="shingi-hooks-") as directory:
         temp = Path(directory)
         (temp / "payload.json").write_text(payload, encoding="utf-8")
-        for index, hook in enabled:
-            problem = run_hook(hook, temp, index)
-            if problem is not None:
-                found.append(hook_warning(problem, event, index, hook, unit))
+        before = {signum: signal.signal(signum, interrupted) for signum in INTERRUPTS}
+        try:
+            for index, hook in enabled:
+                problem = run_hook(hook, temp, index)
+                if problem is not None:
+                    found.append(hook_warning(problem, event, index, hook, unit))
+        finally:
+            for signum, handler in before.items():
+                signal.signal(signum, handler)
     return found
+
+
+def interrupted(signum, frame):
+    """Kill the running hook's process group, then die of `signum` with no envelope (hooks-spec.md,
+    Running a hook). The temp directory is left behind."""
+    if running is not None:
+        try:
+            os.killpg(running, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    signal.signal(signum, signal.SIG_DFL)
+    os.kill(os.getpid(), signum)
 
 
 def run_hook(hook, temp, index):
     """Run one hook; None when it exited 0, otherwise `(kind, exit, stderr, reason)`: the warning's
     kind, `exit` None when it couldn't be started or ran out of time."""
+    global running
     stderr_path = temp / f"stderr-{index}"
     with open(temp / "payload.json", "rb") as stdin, open(stderr_path, "wb") as stderr:
         try:
@@ -169,6 +190,7 @@ def run_hook(hook, temp, index):
             )
         except OSError as exc:
             return "hook-failed", None, "", exc.strerror
+    running = proc.pid
     try:
         status = proc.wait(timeout=hook.timeout)
     except subprocess.TimeoutExpired:
@@ -178,6 +200,8 @@ def run_hook(hook, temp, index):
             pass
         proc.wait()
         return "hook-timeout", None, stderr_tail(stderr_path), None
+    finally:
+        running = None
     if status == 0:
         return None
     return "hook-failed", (status if status > 0 else 128 - status), stderr_tail(stderr_path), None
