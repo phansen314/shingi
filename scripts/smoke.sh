@@ -188,7 +188,7 @@ check "fixed" 0 '.result.kind == "branch" and .warnings == []' -- where HOME-1/b
 echo "== an undefined kind"
 rules=$config/shingi.toml
 cp "$rules" "$tmp/rules.toml"
-sed -i -e '/^\[kind.branch\]/,$d' -e 's/"group", "branch"/"group"/' "$rules"
+sed -e '/^\[kind.branch\]/,$d' -e 's/"group", "branch"/"group"/' "$tmp/rules.toml" >"$rules"  # not sed -i: BSD's takes an argument
 check "where warns and reports the kind as stored" 0 '.result.kind == "branch" and .warnings == [{kind: "undefined-kind", message: .warnings[0].message, unit: "HOME-1/a", ids: [], details: {kind: "branch"}}]' -- where HOME-1/a
 check "list warns once per unit" 0 '[.warnings[] | select(.kind == "undefined-kind") | .unit] == ["HOME-1/a", "HOME-1/b"]' -- list HOME-1
 check "create refuses it" 1 '.error.kind == "unknown-kind" and .error.details.defined == ["group"]' -- create HOME-3 branch
