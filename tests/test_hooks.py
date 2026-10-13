@@ -243,5 +243,71 @@ class HooksTest(ShingiTestCase):
         fcntl.ioctl(tty, termios.TIOCSCTTY, 0)
 
 
+class TimeoutTest(ShingiTestCase):
+    def alive(self, pid):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        return True
+
+    def test_a_hook_past_its_timeout_is_hook_timeout(self):
+        background = self.tmp / "background.pid"
+        self.addCleanup(HooksTest.kill_recorded, background)
+        command = self.hook(f"echo partial >&2\nsleep 60 & echo $! > {background}\nsleep 60\n")
+        self.write_hooks(create=[{"command": "true"}, {"command": command, "timeout": 0.5, "description": "slow"}])
+        started = time.monotonic()
+        status, envelope = self.shingi("create", "HOME-1", "group")
+        elapsed = time.monotonic() - started
+        self.assertEqual(status, 0, envelope)
+        self.assertLess(elapsed, 0.5 + 1)
+        (warning,) = envelope["warnings"]
+        self.assertEqual(warning["kind"], "hook-timeout")
+        self.assertEqual(warning["unit"], "HOME-1")
+        self.assertEqual(warning["ids"], [])
+        self.assertEqual(warning["details"], {
+            "event": "create", "index": 1, "command": command, "description": "slow",
+            "timeout": 0.5, "stderr": "partial\n",
+        })
+        self.assertFalse(self.alive(int(background.read_text())))
+
+    def test_timeout_is_reported_as_the_file_wrote_it(self):
+        self.write_hooks(create=[{"command": "sleep 60", "timeout": 1}])
+        status, envelope = self.shingi("create", "HOME-1", "group")
+        timeout = envelope["warnings"][0]["details"]["timeout"]
+        self.assertEqual(timeout, 1)
+        self.assertIsInstance(timeout, int)
+
+    def test_a_hook_that_ignores_sigterm_is_killed_all_the_same(self):
+        self.write_hooks(create=[{"command": self.hook("trap '' TERM\nwhile true; do sleep 1; done\n"), "timeout": 0.5}])
+        started = time.monotonic()
+        status, envelope = self.shingi("create", "HOME-1", "group")
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertEqual(envelope["warnings"][0]["kind"], "hook-timeout")
+
+    def test_the_default_timeout_is_ten_seconds(self):
+        self.write_hooks(create=[{"command": "sleep 2"}])
+        status, envelope = self.shingi("create", "HOME-1", "group")
+        self.assertEqual(envelope["warnings"], [])
+
+    def test_failing_and_timed_out_hooks_sort_among_the_commands_own_warnings(self):
+        self.shingi("create", "HOME-1", "group")
+        self.koan("delete-folder", "/shingi/HOME-1", "--recursive")  # so a child has a parent-unlinked warning
+        self.write_hooks(create=[
+            {"command": "exit 2"},
+            {"command": "sleep 60", "timeout": 0.3},
+            {"command": "exit 3"},
+            {"command": "sleep 60", "timeout": 0.3},
+        ])
+        status, envelope = self.shingi("create", "HOME-1/x", "branch")
+        self.assertEqual(status, 0, envelope)
+        got = [(w["kind"], w["details"].get("index")) for w in envelope["warnings"]]
+        self.assertEqual(got, [
+            ("hook-failed", 0), ("hook-failed", 2),
+            ("hook-timeout", 1), ("hook-timeout", 3),
+            ("parent-unlinked", None), ("parent-unlinked", None),
+        ])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3,6 +3,7 @@
 import errno
 import math
 import os
+import signal
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -157,8 +158,8 @@ def run(hooks, event, inp, result, warnings, unit):
 
 
 def run_hook(hook, temp, index):
-    """Run one hook; None when it exited 0, otherwise `(exit, stderr, reason)`, `exit` None when
-    it couldn't be started."""
+    """Run one hook; None when it exited 0, otherwise `(kind, exit, stderr, reason)`: the warning's
+    kind, `exit` None when it couldn't be started or ran out of time."""
     stderr_path = temp / f"stderr-{index}"
     with open(temp / "payload.json", "rb") as stdin, open(stderr_path, "wb") as stderr:
         try:
@@ -167,11 +168,19 @@ def run_hook(hook, temp, index):
                 stdin=stdin, stdout=subprocess.DEVNULL, stderr=stderr, start_new_session=True,
             )
         except OSError as exc:
-            return None, "", exc.strerror
-    status = proc.wait()
+            return "hook-failed", None, "", exc.strerror
+    try:
+        status = proc.wait(timeout=hook.timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait()
+        return "hook-timeout", None, stderr_tail(stderr_path), None
     if status == 0:
         return None
-    return (status if status > 0 else 128 - status), stderr_tail(stderr_path), None
+    return "hook-failed", (status if status > 0 else 128 - status), stderr_tail(stderr_path), None
 
 
 def stderr_tail(path):
@@ -182,13 +191,15 @@ def stderr_tail(path):
 
 
 def hook_warning(problem, event, index, hook, unit):
-    status, stderr, reason = problem
-    details = {
-        "event": event, "index": index, "command": hook.command, "description": hook.description,
-        "exit": status, "stderr": stderr,
-    }
-    if reason is not None:
-        message = f"{event} hook {index} couldn't be started: {reason}"
+    kind, status, stderr, reason = problem
+    details = {"event": event, "index": index, "command": hook.command, "description": hook.description}
+    if kind == "hook-timeout":
+        details.update(timeout=hook.timeout_given, stderr=stderr)
+        message = f"{event} hook {index} was still running after {hook.timeout_given} seconds, and was killed"
     else:
-        message = f"{event} hook {index} exited {status}"
-    return units.warning("hook-failed", message, unit, details=details)
+        details.update(exit=status, stderr=stderr)
+        if reason is not None:
+            message = f"{event} hook {index} couldn't be started: {reason}"
+        else:
+            message = f"{event} hook {index} exited {status}"
+    return units.warning(kind, message, unit, details=details)
