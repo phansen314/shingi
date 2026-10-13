@@ -132,7 +132,7 @@ The hooks for an event run one at a time, in the order the file lists them, skip
 - **The timeout:** when it passes with the hook still running, shingi sends `SIGKILL` to the hook's process group, with no warning signal first, and reports `hook-timeout`.
 - **An interrupt:** shingi killed by `SIGINT`, `SIGTERM`, or `SIGHUP` while a hook runs sends `SIGKILL` to the hook's process group, then dies of the same signal, as it would have (see [Exit codes](cli-spec.md#exit-codes)). The hooks after it don't run. A signal that was ignored when shingi started stays ignored while a hook runs, as it is with none. A shingi killed by `SIGKILL`, or one that crashes, kills nothing: its hook runs on, with nothing watching it or its timeout.
 
-A hook that exits `0` succeeded. Anything else is a warning, and the next hook still runs.
+A hook that exits `0` succeeded. Anything else is a warning, and the next hook still runs. So is anything that goes wrong in shingi running a hook, a missing temporary file among it: it is `hook-failed`, and the command's outcome never changes.
 
 ### By hand
 

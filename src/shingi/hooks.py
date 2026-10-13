@@ -142,25 +142,25 @@ def run(hooks, event, inp, result, warnings, unit):
     enabled = [(index, hook) for index, hook in enumerate(hooks[event]) if not hook.disabled]
     if not enabled:
         return []
-    payload = envelope.encode({
-        "schema": 1,
-        "tool": "shingi",
-        "version": package_version("shingi"),
-        "event": event,
-        "input": inp,
-        "result": result,
-        "warnings": warnings,
-    })
     try:
+        payload = envelope.encode({
+            "schema": 1,
+            "tool": "shingi",
+            "version": package_version("shingi"),
+            "event": event,
+            "input": inp,
+            "result": result,
+            "warnings": warnings,
+        })
         directory = tempfile.TemporaryDirectory(prefix="shingi-hooks-")
-    except OSError as exc:
+    except Exception as exc:  # a hook never fails the command, whatever goes wrong
         return cannot_run(exc, enabled, event, unit)
     found = []
     with directory:
         temp = Path(directory.name)
         try:
             (temp / "payload.json").write_text(payload, encoding="utf-8")
-        except OSError as exc:
+        except Exception as exc:
             return cannot_run(exc, enabled, event, unit)
         # A signal that was ignored stays ignored, as it would with no hooks running.
         before = {signum: signal.getsignal(signum) for signum in INTERRUPTS}
@@ -169,7 +169,10 @@ def run(hooks, event, inp, result, warnings, unit):
                 signal.signal(signum, interrupted)
         try:
             for index, hook in enabled:
-                problem = run_hook(hook, temp, index)
+                try:
+                    problem = run_hook(hook, temp, index)
+                except Exception as exc:
+                    problem = "hook-failed", None, "", reason(exc)
                 if problem is not None:
                     found.append(hook_warning(problem, event, index, hook, unit))
         finally:
@@ -179,9 +182,14 @@ def run(hooks, event, inp, result, warnings, unit):
 
 
 def cannot_run(exc, enabled, event, unit):
-    """Each hook as one that couldn't be started, when shingi couldn't make what they need: the
+    """Each hook as one that couldn't be run, when shingi couldn't make what they need: the
     command has succeeded all the same."""
-    return [hook_warning(("hook-failed", None, "", exc.strerror), event, index, hook, unit) for index, hook in enabled]
+    return [hook_warning(("hook-failed", None, "", reason(exc)), event, index, hook, unit) for index, hook in enabled]
+
+
+def reason(exc):
+    """Why `exc` stopped a hook: the OS error, or the exception named."""
+    return exc.strerror if isinstance(exc, OSError) and exc.strerror else f"{type(exc).__name__}: {exc}"
 
 
 def interrupted(signum, frame):
@@ -241,10 +249,13 @@ def run_hook(hook, temp, index):
 
 
 def stderr_tail(path):
-    with open(path, "rb") as f:
-        f.seek(0, os.SEEK_END)
-        f.seek(max(0, f.tell() - STDERR_TAIL))
-        return f.read().decode("utf-8", errors="replace")
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - STDERR_TAIL))
+            return f.read().decode("utf-8", errors="replace")
+    except OSError:  # a hook that removed it has left nothing to report
+        return ""
 
 
 def hook_warning(problem, event, index, hook, unit):
@@ -256,7 +267,7 @@ def hook_warning(problem, event, index, hook, unit):
     else:
         details.update(exit=status, stderr=stderr)
         if reason is not None:
-            message = f"{event} hook {index} couldn't be started: {reason}"
+            message = f"{event} hook {index} couldn't be run: {reason}"
         else:
             message = f"{event} hook {index} exited {status}"
     return units.warning(kind, message, unit, details=details)

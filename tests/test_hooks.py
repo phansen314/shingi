@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 import errno
+from importlib.metadata import PackageNotFoundError
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -152,6 +153,13 @@ class HooksTest(ShingiTestCase):
         stderr = envelope["warnings"][0]["details"]["stderr"]
         self.assertEqual(len(stderr), 2048)
         self.assertTrue(stderr.endswith("aaaEND"))
+
+    def test_a_hook_that_removes_its_stderr_file_does_not_fail_the_command(self):
+        self.write_hooks(create=[{"command": 'rm -f "$(readlink /proc/$$/fd/2)"; exit 1'}])
+        status, envelope = self.create()
+        self.assertEqual(status, 0, envelope)
+        (warning,) = envelope["warnings"]
+        self.assertEqual((warning["kind"], warning["details"]["exit"], warning["details"]["stderr"]), ("hook-failed", 1, ""))
 
     def test_stderr_with_invalid_utf8_is_replaced(self):
         self.write_hooks(create=[{"command": "printf '\\377ok' >&2; exit 1"}])
@@ -470,6 +478,30 @@ class CannotRunTest(unittest.TestCase):
     def test_no_payload(self):
         with mock.patch.object(Path, "write_text", side_effect=OSError(errno.ENOSPC, "No space left on device")):
             self.assert_every_hook_failed(self.run_hooks())
+
+    def test_an_unexpected_error_building_the_payload(self):
+        with mock.patch("shingi.hooks.package_version", side_effect=PackageNotFoundError("shingi")):
+            warnings = self.run_hooks()
+        self.assertEqual([w["details"]["index"] for w in warnings], [0, 2])
+        self.assertIn("PackageNotFoundError", warnings[0]["message"])
+
+    def test_an_unexpected_error_running_one_hook_leaves_the_others(self):
+        real = hooks.run_hook
+
+        def fail_the_first(hook, temp, index):
+            if index == 0:
+                raise RuntimeError("boom")
+            return real(hook, temp, index)
+
+        with mock.patch("shingi.hooks.run_hook", fail_the_first):
+            warnings = self.run_hooks()
+        self.assertEqual([w["details"]["index"] for w in warnings], [0])
+        self.assertEqual(warnings[0]["details"]["exit"], None)
+        self.assertIn("RuntimeError: boom", warnings[0]["message"])
+
+    def test_stderr_that_cant_be_read_back_is_empty(self):
+        with mock.patch("builtins.open", side_effect=FileNotFoundError(errno.ENOENT, "No such file")):
+            self.assertEqual(hooks.stderr_tail(Path("/nope")), "")
 
     def test_no_stderr_file_for_one_hook(self):
         real_open = open

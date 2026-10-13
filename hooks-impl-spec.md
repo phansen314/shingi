@@ -70,7 +70,7 @@ Step 3's problems, each `{field, reason}`, `field` a JSON Pointer (`~` as `~0`, 
 Returns the hook warnings, in the order the hooks ran. With no enabled hook for the event it returns `[]` and does nothing else: no temp directory, no signal handler.
 
 1. **Build the payload** once: `{"schema": 1, "tool": "shingi", "version": <package version>, "event", "input": inp, "result", "warnings"}`, as `envelope.encode` writes it, which ends it in a newline. `inp` is the operation's input as it came in; `warnings` are the operation's own, already sorted.
-2. **Make a temp directory** (`tempfile.TemporaryDirectory`) and write the payload to `payload.json` in it. An `OSError` from either makes every enabled hook `hook-failed`, as one that couldn't be started is (`exit` `None`, `stderr` `""`, the `message` naming `exc.strerror`), and the command succeeds.
+2. **Make a temp directory** (`tempfile.TemporaryDirectory`) and write the payload to `payload.json` in it. Any exception from building the payload, from either, makes every enabled hook `hook-failed`, as one that couldn't be started is (`exit` `None`, `stderr` `""`, the `message` naming `exc.strerror`), and the command succeeds.
 3. **Install the signal handlers** (see [Interrupts](#interrupts)).
 4. **For each hook, in order, skipping disabled ones,** run it as below, and add its warning if it has one.
 5. **Restore the handlers and remove the directory,** in a `finally`.
@@ -80,11 +80,11 @@ One hook:
 - **Open `payload.json` anew, for reading,** as its stdin: a fresh open file, so each hook reads from the start, whatever an earlier hook, or a process it left behind, did with its own.
 - **Open `stderr-<index>` in the temp directory, for writing,** as its stderr.
 - **Start it:** `subprocess.Popen(["/bin/sh", "-c", command], stdin=…, stdout=subprocess.DEVNULL, stderr=…, start_new_session=True)`. No `cwd`, no `env`: both are shingi's. `start_new_session` is `setsid`: the hook's process ID is also its process group's and its session's.
-- **An `OSError` opening the payload or stderr file, or starting it,** is `hook-failed` with `exit` `None` and `stderr` `""`, its `message` naming `exc.strerror`.
+- **An exception running one hook,** the `OSError` opening the payload or stderr file or starting it among them, is `hook-failed` with `exit` `None` and `stderr` `""`, its `message` naming `exc.strerror`, or the exception's type and text when it has none.
 - **Wait:** `proc.wait(timeout=hook.timeout)`. This waits for the shell to exit, not for its output to close, since no pipe is read.
 - **On `subprocess.TimeoutExpired`:** `os.killpg(proc.pid, signal.SIGKILL)`, ignoring `ProcessLookupError`, then `proc.wait()`. It is `hook-timeout` whatever status that wait returns.
 - **Otherwise,** a return code of `0` is success and no warning. A positive one is `exit`. A negative one, `-n`, is `exit` `128+n`.
-- **The stderr tail:** the file's last 2,048 bytes, decoded as UTF-8 with `errors="replace"`.
+- **The stderr tail:** the file's last 2,048 bytes, decoded as UTF-8 with `errors="replace"`, or `""` when it can't be read back (a hook that removed it).
 
 The warnings are made with `units.warning`: `unit` as given, `ids` empty, `details` as [Warning kinds](operations.md#warning-kinds) lists them, `timeout` being `timeout_given`.
 
