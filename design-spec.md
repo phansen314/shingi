@@ -206,6 +206,7 @@ Worktree: /home/you/repos/foo/.claude/worktrees/HOME-12345-foo-1-schema
 
 - **The title is the first non-blank line, if it starts with `# `.** Only that line is looked at, so a `# ` line further down, in a code block or anywhere else, is never taken for it. A unit whose first non-blank line is something else, or with no `uow.md`, has the empty title, and tools show its path instead. Changing a title is editing that line.
 - **`## Code` is the skill's format.** A unit with code says where it is under `## Code`, in the form the [skill](#claude-code) defines — the example above shows it — so every unit's notes say where its code is the same way. shingi neither writes nor reads it, and this spec doesn't define it: the skill is what agents learn it from, and the one place it changes.
+- **`## Log` is a convention.** The agents doing a unit's tasks, and [hooks](#hooks), append timestamped lines under a `## Log` heading — set up, merge request opened, blocked on review — giving a reader the unit's history without a database. Once ino reads it, it is a [format](#how-shingi-fits), and the skill writes it down.
 - **Nothing in it is read by shingi** but its title.
 - **Never replaced.** `create` writes `uow.md` in the folder it has just made. [`adopt`](#adopt) writes one only when the folder has none, and keeps one that is there, untouched.
 
@@ -396,7 +397,7 @@ A command of the user's own that shingi runs once [`create`](#create), [`adopt`]
 - **After the change, never part of it.** A hook can't stop a command or change its result. One that fails, or runs past its timeout, is a warning, [`hook-failed`](#problems) or [`hook-timeout`](#problems), and the change stays. A command that fails runs none.
 - **Checked before anything changes.** A hooks file shingi can't use is an error, [`invalid-hooks`](#problems), for every command that would run hooks, so no change is made with its hooks skipped. Reads never read it.
 - **Trusted as the rules file is.** A hook is a command the user wrote into their own config, with the user's permissions; shingi sandboxes nothing.
-- **A log convention.** Hooks, and the agents doing a unit's tasks, append timestamped lines under a `## Log` heading in `uow.md` — set up, merge request opened, blocked on review — giving a reader the unit's history without a database. Once ino reads it, it is a [format](#how-shingi-fits), and the skill writes it down.
+- **Writing to the notes as agents do.** A hook that records what it did appends to the unit's [`## Log`](#the-notes-file), by the same convention.
 
 ## Problems
 
@@ -486,7 +487,7 @@ Grouped by when, not ranked within a group.
 
 #### Batch create and tree templates
 
-`shingi create -i plan.json` taking a whole tree — a story, its groups, every branch — as one input, as `koan create-batch` takes many tasks, so a front end can propose the entire shape for review and build it in one call. A batch that fails part-way would report what it made, unit by unit, as one `create` does, for an agent to undo; and each unit's [hooks](#hooks) would run as if it had been created alone.
+`shingi create -i plan.json` taking a whole tree — a story, its groups, every branch — as one input, as `koan create-batch` takes many tasks, so a front end can propose the entire shape for review and build it in one call. A batch that fails part-way would report what it made, unit by unit, as one `create` does, for an agent to undo; and the batch would fire one `create` event, its result naming every unit, so its [hooks](#hooks) run once, not once per unit.
 
 A plan file kept and reused is a **tree template**: "a story with a research group, a split group, and one `branch` per repository", with names filled in per use. Templates are files the user keeps, not shingi configuration: shingi only reads the plan it is given.
 

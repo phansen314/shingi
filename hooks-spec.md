@@ -205,7 +205,7 @@ Each of these is a test, against the real `shingi` and a hooks file in a tempora
 
 ## Changes to the other specs
 
-- **design-spec.md:** done. [Hooks](design-spec.md#hooks) replaces the Future work sketch, and keeps its `## Log` convention; Locations and Problems name the hooks file and the new kinds. The Claude Code adapter still carries no hooks of Claude Code's.
+- **design-spec.md:** done. [Hooks](design-spec.md#hooks) replaces the Future work sketch, whose `## Log` convention is now in [The notes file](design-spec.md#the-notes-file); Locations and Problems name the hooks file and the new kinds. The Claude Code adapter still carries no hooks of Claude Code's.
 - **operations.md:** done. It has the shared rule, [Running hooks](operations.md#running-hooks), the kinds' `details`, the precedence, and the hooks' place in `create`, `adopt`, and `delete`.
 - **cli-spec.md:** Exit codes' "Interrupts are crashes" gains the hook: shingi still dies of the signal, with no envelope, after killing the hook's process group.
 - **The skill:** report `hook-failed` and `hook-timeout` to the user, never run the command again for one (its change is made), and never write `hooks.json` unasked.
