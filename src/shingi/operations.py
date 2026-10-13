@@ -9,7 +9,7 @@ import os
 import uuid
 from importlib.metadata import version as package_version
 
-from shingi import inputs, koan, rules as rules_file, units
+from shingi import hooks, inputs, koan, rules as rules_file, units
 from shingi.envelope import OperationError
 
 
@@ -197,6 +197,7 @@ def delete(inp, config):
 def make_unit(inp, config, adopting):
     """create, or with `adopting`, adopt: they differ only in the working folder."""
     rules = rules_file.load(config)
+    loaded = None if adopting else hooks.load()  # slice 1: create only
     path, kind = inp["path"], inp["kind"]
     units.check_path(path, creating=True)
     if kind not in rules.kinds:
@@ -241,7 +242,11 @@ def make_unit(inp, config, adopting):
     except Exception as exc:
         raise with_partial(exc, made, warnings)
     unit, read_warnings = units.read_unit(rules, path)
-    return {"unit": unit}, units.sort_warnings(warnings + read_warnings)
+    result = {"unit": unit}
+    warnings = units.sort_warnings(warnings + read_warnings)
+    if not adopting:
+        warnings = units.sort_warnings(warnings + hooks.run(loaded, "create", inp, result, warnings, unit=path))
+    return result, warnings
 
 
 def write_unit(rules, inp, path, kind, unit_id, adopting, parent, parent_start, parent_done, made, warnings):

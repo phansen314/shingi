@@ -2,8 +2,11 @@
 
 import json
 import os
+import shlex
 import shutil
+import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -68,7 +71,11 @@ class ShingiTestCase(unittest.TestCase):
         self.working.mkdir()
         self.config = tmp / "shingi.toml"
         self.config.write_text(RULES)
+        self.tmp = tmp
         self.env = {**os.environ, "HOME": str(tmp), "XDG_CONFIG_HOME": str(tmp / "config")}
+        self.hooks_file = tmp / "config" / "shingi" / "hooks.json"
+        if sys.platform == "darwin":
+            self.hooks_file = tmp / "Library" / "Application Support" / "shingi" / "hooks.json"
         self.koan("init")
 
     def shingi(self, *args, cwd=None, stdin=b""):
@@ -94,6 +101,28 @@ class ShingiTestCase(unittest.TestCase):
         self.env["PATH"] = f"{bin_dir}:{self.env['PATH']}"
         for call, mode in modes.items():
             self.env[f"FAKE_KOAN_{call.upper()}"] = str(mode)
+
+    def write_hooks(self, **events):
+        """Write the hooks file, each keyword an event's list of hooks."""
+        self.hooks_file.parent.mkdir(parents=True, exist_ok=True)
+        self.hooks_file.write_text(json.dumps({"schema": 1, "hooks": events}))
+
+    def hook(self, script):
+        """An executable sh script, written to the temp directory; its quoted path, as a command."""
+        self.scripts = getattr(self, "scripts", 0) + 1
+        path = self.tmp / f"hook-{self.scripts}.sh"
+        path.write_text("#!/bin/sh\n" + script)
+        path.chmod(path.stat().st_mode | stat.S_IXUSR)
+        return shlex.quote(str(path))
+
+    def recorder(self):
+        """A hook command that copies its stdin to a file, and that file's path."""
+        out = self.tmp / f"payload-{self.hook_count()}.json"
+        return self.hook(f"cat > {shlex.quote(str(out))}\n"), out
+
+    def hook_count(self):
+        self.recorders = getattr(self, "recorders", 0) + 1
+        return self.recorders
 
     def koan_show(self, task_id):
         return self.koan("show", str(task_id))["task"]

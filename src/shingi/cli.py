@@ -1,13 +1,12 @@
 """The shingi command line (see cli-spec.md)."""
 
 import errno
-import json
 import os
 import signal
 import sys
 
 from shingi import operations
-from shingi.envelope import OperationError, encode, failure, success
+from shingi.envelope import OperationError, decode, encode, failure, success
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -170,13 +169,9 @@ def read_input(file):
     if data.startswith(b"\xef\xbb\xbf"):
         raise bad_input("starts with a byte-order mark")
     try:
-        text = data.decode("utf-8")
-    except UnicodeDecodeError:
-        raise bad_input("not valid UTF-8")
-    try:
-        value = json.loads(text, object_pairs_hook=no_duplicate_keys, parse_constant=not_json)
+        value = decode(data)
     except ValueError as exc:
-        raise bad_input(f"not one JSON value: {exc}")
+        raise bad_input(str(exc))
     if not isinstance(value, dict):
         raise bad_input("not a JSON object")
     return value
@@ -186,18 +181,6 @@ def bad_input(reason):
     return OperationError("invalid-input", f"invalid input: {reason}", {
         "problems": [{"field": "", "reason": reason}],
     })
-
-
-def no_duplicate_keys(pairs):
-    keys = [key for key, _ in pairs]
-    duplicates = sorted({key for key in keys if keys.count(key) > 1})
-    if duplicates:
-        raise ValueError(f"duplicate key {duplicates[0]!r}")
-    return dict(pairs)
-
-
-def not_json(constant):
-    raise ValueError(f"{constant} is not JSON")
 
 
 def current_directory():
