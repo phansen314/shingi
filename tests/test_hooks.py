@@ -154,6 +154,7 @@ class HooksTest(ShingiTestCase):
         self.assertEqual(len(stderr), 2048)
         self.assertTrue(stderr.endswith("aaaEND"))
 
+    @unittest.skipUnless(os.path.isdir("/proc/self/fd"), "finds the stderr file through /proc")
     def test_a_hook_that_removes_its_stderr_file_does_not_fail_the_command(self):
         self.write_hooks(create=[{"command": 'rm -f "$(readlink /proc/$$/fd/2)"; exit 1'}])
         status, envelope = self.create()
