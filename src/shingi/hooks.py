@@ -151,10 +151,17 @@ def run(hooks, event, inp, result, warnings, unit):
         "result": result,
         "warnings": warnings,
     })
+    try:
+        directory = tempfile.TemporaryDirectory(prefix="shingi-hooks-")
+    except OSError as exc:
+        return cannot_run(exc, enabled, event, unit)
     found = []
-    with tempfile.TemporaryDirectory(prefix="shingi-hooks-") as directory:
-        temp = Path(directory)
-        (temp / "payload.json").write_text(payload, encoding="utf-8")
+    with directory:
+        temp = Path(directory.name)
+        try:
+            (temp / "payload.json").write_text(payload, encoding="utf-8")
+        except OSError as exc:
+            return cannot_run(exc, enabled, event, unit)
         # A signal that was ignored stays ignored, as it would with no hooks running.
         before = {signum: signal.getsignal(signum) for signum in INTERRUPTS}
         for signum, handler in before.items():
@@ -169,6 +176,12 @@ def run(hooks, event, inp, result, warnings, unit):
             for signum, handler in before.items():
                 signal.signal(signum, handler)
     return found
+
+
+def cannot_run(exc, enabled, event, unit):
+    """Each hook as one that couldn't be started, when shingi couldn't make what they need: the
+    command has succeeded all the same."""
+    return [hook_warning(("hook-failed", None, "", exc.strerror), event, index, hook, unit) for index, hook in enabled]
 
 
 def interrupted(signum, frame):
@@ -193,18 +206,20 @@ def run_hook(hook, temp, index):
     kind, `exit` None when it couldn't be started or ran out of time."""
     global running, starting, pending
     stderr_path = temp / f"stderr-{index}"
-    with open(temp / "payload.json", "rb") as stdin, open(stderr_path, "wb") as stderr:
-        starting = True
-        try:
-            proc = subprocess.Popen(
-                ["/bin/sh", "-c", hook.command],
-                stdin=stdin, stdout=subprocess.DEVNULL, stderr=stderr, start_new_session=True,
-            )
-            running = proc.pid
-        except OSError as exc:
-            proc, failure = None, exc.strerror
-        finally:
-            starting = False
+    proc = failure = None
+    try:
+        with open(temp / "payload.json", "rb") as stdin, open(stderr_path, "wb") as stderr:
+            starting = True
+            try:
+                proc = subprocess.Popen(
+                    ["/bin/sh", "-c", hook.command],
+                    stdin=stdin, stdout=subprocess.DEVNULL, stderr=stderr, start_new_session=True,
+                )
+                running = proc.pid
+            finally:
+                starting = False
+    except OSError as exc:
+        failure = exc.strerror
     if pending is not None:
         interrupted(pending, None)
     if proc is None:

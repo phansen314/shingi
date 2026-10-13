@@ -5,8 +5,12 @@ import signal
 import subprocess
 import sys
 import time
+import errno
 import unittest
+from unittest import mock
+from pathlib import Path
 
+from shingi import hooks
 from support import ShingiTestCase
 
 
@@ -429,6 +433,40 @@ class InterruptTest(ShingiTestCase):
         out, _ = proc.communicate(timeout=10)
         self.assertEqual(proc.returncode, 0)
         self.assertTrue(json.loads(out)["ok"])
+
+
+class CannotRunTest(unittest.TestCase):
+    """Shingi failing to make what hooks need is a warning per hook, never a failed command."""
+
+    def run_hooks(self):
+        loaded = {"create": [hooks.Hook("true"), hooks.Hook("true", disabled=True), hooks.Hook("true", description="d")]}
+        return hooks.run(loaded, "create", {}, {}, [], unit="HOME-1")
+
+    def assert_every_hook_failed(self, warnings):
+        self.assertEqual([(w["kind"], w["details"]["index"]) for w in warnings], [("hook-failed", 0), ("hook-failed", 2)])
+        for warning in warnings:
+            self.assertEqual((warning["unit"], warning["details"]["exit"], warning["details"]["stderr"]), ("HOME-1", None, ""))
+            self.assertIn("No space left", warning["message"])
+
+    def test_no_temp_directory(self):
+        with mock.patch("tempfile.TemporaryDirectory", side_effect=OSError(errno.ENOSPC, "No space left on device")):
+            self.assert_every_hook_failed(self.run_hooks())
+
+    def test_no_payload(self):
+        with mock.patch.object(Path, "write_text", side_effect=OSError(errno.ENOSPC, "No space left on device")):
+            self.assert_every_hook_failed(self.run_hooks())
+
+    def test_no_stderr_file_for_one_hook(self):
+        real_open = open
+
+        def refuse(path, *args, **kwargs):
+            if Path(path).name == "stderr-2":
+                raise OSError(errno.ENOSPC, "No space left on device")
+            return real_open(path, *args, **kwargs)
+
+        with mock.patch("builtins.open", refuse):
+            warnings = self.run_hooks()
+        self.assertEqual([(w["kind"], w["details"]["index"]) for w in warnings], [("hook-failed", 2)])
 
 
 class ByHandTest(ShingiTestCase):
