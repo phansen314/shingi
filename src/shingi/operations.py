@@ -350,10 +350,11 @@ def notes_text(title, notes):
 def check_entry(folder, path, adopting):
     """Check what is at the new unit's name in its parent's folder (operations.md, create step 1.4)."""
     name = folder.name
-    if (folder / units.MANIFEST).is_file():
+    siblings = sorted(folder.parent.iterdir() if folder.parent.exists() else [], key=lambda e: e.name.encode())  # no working root yet
+    # Only an entry named exactly so: on a case-insensitive filesystem, folder / MANIFEST finds another case's.
+    if any(entry.name == name and (entry / units.MANIFEST).is_file() for entry in siblings):
         raise OperationError("unit-exists", f"{path} already exists", {"manifest": str(folder / units.MANIFEST)})
-    siblings = folder.parent.iterdir() if folder.parent.exists() else []  # no working root yet
-    for entry in sorted(siblings, key=lambda e: e.name.encode()):
+    for entry in siblings:
         if entry.name.encode().lower() != name.encode().lower():  # ASCII case only
             continue
         # Only adopt may find something at the name: a folder with exactly it.
