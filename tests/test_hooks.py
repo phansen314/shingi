@@ -96,6 +96,16 @@ class HooksTest(ShingiTestCase):
         self.assertEqual([w["kind"] for w in envelope["warnings"]], ["hook-failed"])
         self.assertTrue(out.exists())
 
+    def test_a_hook_runs_in_the_callers_directory_with_shingis_environment(self):
+        where = self.tmp / "where"
+        self.write_hooks(create=[{"command": f'pwd > {where}; echo "$SHINGI_TEST_MARK" >> {where}'}])
+        self.env["SHINGI_TEST_MARK"] = "marked"
+        cwd = self.tmp / "elsewhere"
+        cwd.mkdir()
+        status, envelope = self.shingi("create", "HOME-1", "group", cwd=cwd)
+        self.assertEqual(status, 0, envelope)
+        self.assertEqual(where.read_text().split("\n")[:2], [str(cwd.resolve()), "marked"])
+
     def test_a_hooks_stdout_never_reaches_shingis(self):
         self.write_hooks(create=[{"command": "echo noise; echo more noise"}])
         proc = subprocess.run(
@@ -406,6 +416,19 @@ class InterruptTest(ShingiTestCase):
                 self.assertTrue(self.gone(background))
                 self.assertFalse(ran.exists())
                 self.assertEqual(self.shingi("where", name)[0], 0)  # the unit exists
+
+    def test_an_ignored_signal_stays_ignored_while_a_hook_runs(self):
+        started = self.tmp / "started"
+        self.write_hooks(create=[{"command": self.hook(f"touch {started}\nsleep 1\n")}])
+        proc = subprocess.Popen(
+            ["shingi", "create", "HOME-1", "group", "--config", str(self.config)],
+            env=self.env, stdout=subprocess.PIPE, preexec_fn=lambda: signal.signal(signal.SIGHUP, signal.SIG_IGN),
+        )
+        self.wait_for(started)
+        proc.send_signal(signal.SIGHUP)
+        out, _ = proc.communicate(timeout=10)
+        self.assertEqual(proc.returncode, 0)
+        self.assertTrue(json.loads(out)["ok"])
 
 
 class ByHandTest(ShingiTestCase):

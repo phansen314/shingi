@@ -45,6 +45,8 @@ def decode(data):
         return json.loads(text, object_pairs_hook=no_duplicate_keys, parse_constant=not_json)
     except ValueError as exc:
         raise ValueError(f"not one JSON value: {exc}")
+    except RecursionError:
+        raise ValueError("not one JSON value: nested too deeply")
 
 
 def no_duplicate_keys(pairs):

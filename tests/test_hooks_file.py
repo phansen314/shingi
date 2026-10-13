@@ -215,5 +215,38 @@ class HooksFileTest(ShingiTestCase):
         self.assertEqual(self.shingi("delete", "HOME-2")[1]["error"]["kind"], "unsupported-format")
 
 
+    def test_invalid_input_comes_before_a_broken_hooks_file(self):
+        self.write_raw("{")
+        status, out = self.shingi("create", "HOME-1")
+        self.assertIn(out["error"]["kind"], ("usage",))
+        status, out = self.shingi("create", "-i", "-", stdin=b'{"path": "HOME-1"}')
+        self.assertEqual(out["error"]["kind"], "invalid-input")
+
+    def test_the_hooks_file_comes_before_the_commands_own_checks(self):
+        self.shingi("create", "HOME-1", "group")
+        self.write_raw("{")
+        for name, args in [
+            ("invalid-name", ["create", "bad-", "group"]),
+            ("unknown-kind", ["create", "HOME-2", "story"]),
+            ("unit-exists", ["create", "HOME-1", "group"]),
+            ("delete not-found", ["delete", "HOME-9"]),
+            ("adopt not-found", ["adopt", "HOME-9", "group"]),
+        ]:
+            with self.subTest(name):
+                status, out = self.shingi(*args)
+                self.assertEqual(out["error"]["kind"], "invalid-hooks", out)
+
+    def test_a_hook_field_key_is_escaped_in_its_pointer(self):
+        self.assert_invalid(
+            [("/hooks/create/0/a~1b~0c", "unknown field")], hooks={"create": [{"command": "true", "a/b~c": 1}]},
+        )
+
+    def test_a_deeply_nested_file_is_syntax(self):
+        self.write_raw("[" * 200000)
+        status, out = self.create()
+        self.assertEqual(out["error"]["kind"], "invalid-hooks", out)
+        self.assertEqual(out["error"]["details"]["reason"], "syntax")
+
+
 if __name__ == "__main__":
     unittest.main()

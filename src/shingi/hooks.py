@@ -20,6 +20,8 @@ STDERR_TAIL = 2048
 INTERRUPTS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
 
 running = None  # the running hook's process ID, which is also its process group's
+starting = False  # a hook is being started, with no process ID yet
+pending = None  # a signal that arrived while it was
 
 
 @dataclass
@@ -153,7 +155,11 @@ def run(hooks, event, inp, result, warnings, unit):
     with tempfile.TemporaryDirectory(prefix="shingi-hooks-") as directory:
         temp = Path(directory)
         (temp / "payload.json").write_text(payload, encoding="utf-8")
-        before = {signum: signal.signal(signum, interrupted) for signum in INTERRUPTS}
+        # A signal that was ignored stays ignored, as it would with no hooks running.
+        before = {signum: signal.getsignal(signum) for signum in INTERRUPTS}
+        for signum, handler in before.items():
+            if handler is not signal.SIG_IGN:
+                signal.signal(signum, interrupted)
         try:
             for index, hook in enabled:
                 problem = run_hook(hook, temp, index)
@@ -167,7 +173,12 @@ def run(hooks, event, inp, result, warnings, unit):
 
 def interrupted(signum, frame):
     """Kill the running hook's process group, then die of `signum` with no envelope (hooks-spec.md,
-    Running a hook). The temp directory is left behind."""
+    Running a hook). The temp directory is left behind. A signal that comes while a hook is being
+    started waits for its process ID."""
+    global pending
+    if starting:
+        pending = signum
+        return
     if running is not None:
         try:
             os.killpg(running, signal.SIGKILL)
@@ -180,17 +191,24 @@ def interrupted(signum, frame):
 def run_hook(hook, temp, index):
     """Run one hook; None when it exited 0, otherwise `(kind, exit, stderr, reason)`: the warning's
     kind, `exit` None when it couldn't be started or ran out of time."""
-    global running
+    global running, starting, pending
     stderr_path = temp / f"stderr-{index}"
     with open(temp / "payload.json", "rb") as stdin, open(stderr_path, "wb") as stderr:
+        starting = True
         try:
             proc = subprocess.Popen(
                 ["/bin/sh", "-c", hook.command],
                 stdin=stdin, stdout=subprocess.DEVNULL, stderr=stderr, start_new_session=True,
             )
+            running = proc.pid
         except OSError as exc:
-            return "hook-failed", None, "", exc.strerror
-    running = proc.pid
+            proc, failure = None, exc.strerror
+        finally:
+            starting = False
+    if pending is not None:
+        interrupted(pending, None)
+    if proc is None:
+        return "hook-failed", None, "", failure
     try:
         status = proc.wait(timeout=hook.timeout)
     except subprocess.TimeoutExpired:
