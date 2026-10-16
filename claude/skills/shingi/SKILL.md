@@ -32,7 +32,7 @@ Branch on `.error.kind`, not the exit code. **Always tell the user about any `wa
 | 0 | Success, with or without warnings | — |
 | 1 | Operation error; see `.error.kind` | See below |
 | 2 | Usage error (bad command line) | Fix the command |
-| 3 or other | Outcome unknown (killed, stdout lost) | Reads and `delete`: rerun. `create` and `adopt`: **don't** rerun blind; see [When create fails](#when-create-or-adopt-fails). |
+| 3 or other | Outcome unknown (killed, stdout lost) | Reads and `delete`: rerun. `create`, `adopt`, and `create-batch`: **don't** rerun blind; see [When create fails](#when-create-or-adopt-fails). |
 
 Error kinds worth handling:
 
@@ -41,6 +41,8 @@ Error kinds worth handling:
 - `parent-not-found` — create the parent first.
 - `after-not-found` — a unit named in `--after` isn't a unit (`.error.details.after`): create it first.
 - `after-lineage` — `--after` names the unit itself or one of its ancestors, which would never let it start. Drop that entry: a unit already waits on its ancestors' start tasks. To wait on work inside the parent, name those sibling units instead.
+- `duplicate-path` — two entries of a `create-batch` have the same path, or the same ignoring case (`.error.details.fields`).
+- `after-cycle` — a `create-batch`'s own `after`s can never all be met; `.error.details.cycle` is the units it runs through, each waiting on the next. A unit waits on everything under a unit it comes after, so `x` after `y` with `y/c` after `x` is one. Show the user the cycle and ask which `after` to drop.
 - `name-taken` — something is already at the name (`.error.details.entry`, `.type`): a folder, a file, or a name differing only in case. A folder of existing work is made a unit with `adopt`, not `create`.
 - `unit-exists` — it's already a unit: `shingi where` it.
 - `unknown-kind` — `.error.details.defined` lists the kinds there are.
@@ -109,6 +111,27 @@ shingi create HOME-12345/review group --after HOME-12345/implementation
 ```
 
 Order carries through the tree, so say it once, at the top: every unit under `implementation` waits on `research`, since a child's start task waits on its parent's; and `review` waits on every one of them, since a parent's done task waits on its children's. A stack's pieces are each `--after` the one before. `adopt` has no `--after`.
+
+**A whole tree at once: `create-batch`.** When the user has agreed to several units, make them in one call instead of one `create` each: the input is `{"units": [...]}`, each entry what `create` takes (`path`, `kind`, and optionally `title`, `notes`, `after`), given with `-i`:
+
+```sh
+shingi create-batch -i - <<'EOF' | jq -c 'if .ok then .result.units |= map({path, kind, state}) else . end'
+{"units": [
+  {"path": "HOME-12345", "kind": "group", "title": "Payment retries", "notes": "Story: retry failed card payments up to three times."},
+  {"path": "HOME-12345/setup", "kind": "group"},
+  {"path": "HOME-12345/research", "kind": "group", "after": ["HOME-12345/setup"]},
+  {"path": "HOME-12345/implementation", "kind": "group", "after": ["HOME-12345/research"]},
+  {"path": "HOME-12345/implementation/1-schema", "kind": "branch", "title": "foo: schema changes"},
+  {"path": "HOME-12345/implementation/2-model", "kind": "branch", "title": "foo: model", "after": ["HOME-12345/implementation/1-schema"]},
+  {"path": "HOME-12345/review", "kind": "group", "after": ["HOME-12345/implementation"]}
+]}
+EOF
+```
+
+- Paths are full, and the entries may be in any order. A parent, or a unit in `after`, is either in the batch or a unit already, so a batch can also add to a story that exists. At most 500 units.
+- Everything is checked before anything is made; an error about one entry says which in `.error.details.field` (`/units/3/after/0`, counting from 0).
+- **Show the user the whole batch and get a yes before running it.** It asks for permission once, for all of it.
+- `.result.units` is every new unit, in path order; shape it with `jq`, as `list`'s.
 
 **Existing work:** a folder that already holds work (drafts, notes) becomes a unit with `adopt`, which keeps everything in it, its `uow.md` included:
 
@@ -226,7 +249,9 @@ The key is `shingi-path`, never `shingi-unit`: on a koan task, `shingi-unit` is 
 2. `koan delete-folder <folder>` for each of `partial.koan_folders`, innermost first;
 3. remove each of `partial.files`, `uow.md` first.
 
-**A cycle is not run again.** After `create --after`, a `koan-failed` whose `.error.details.error.kind` is `conflict` and `.rule` is `cycle` means an `--after` unit itself waits on the new unit's parent or another ancestor, so the new unit could never start. Undo the partial, tell the user, and don't run it again with that entry: `.error.details.error.ids` are the tasks in the cycle, and `koan show` on them says which unit it runs through.
+**A cycle is not run again.** After `create --after` or a `create-batch`, a `koan-failed` whose `.error.details.error.kind` is `conflict` and `.rule` is `cycle` means a unit named in an `after` itself waits on the new unit's parent or another ancestor that already exists, so the new unit could never start. Undo the partial, tell the user, and don't run it again with that `after`: `.error.details.error.ids` are the tasks in the cycle, and `koan show` on them says which unit it runs through.
+
+**A `create-batch` that fails part-way may have finished some units.** Its `partial` has one more list, `units`: the units that exist. **Keep them**; everything else in `partial` belongs to the units that were not made, and `blocked` is a list, one entry for each existing parent whose done task got new blockers. Undo it in fewer calls than one per task: `koan delete-folder -r <folder>` for each of `partial.koan_folders` that isn't inside another listed, which removes the tasks in it; `koan delete <id>` for each of `partial.tasks` still there (`koan show <id>` says); then remove each of `partial.files`, last first. Then run `create-batch` again **without the entries whose paths are in `partial.units`**. Their parents, and the units they come after, exist now, so the rest link to them.
 
 Tell the user what you're undoing before you do it. A `koan-failed` with `.error.details.error` `null`, or exit 3 or a signal, means the outcome is unknown: more may have been made than `partial` lists. Run `shingi list <parent>` (or `shingi list` for a top-level path): a unit at the path means it succeeded; an `orphan-task` whose `.details.folder` is the path's koan folder is what it left, to delete before trying again.
 

@@ -2,14 +2,14 @@
 
 An operation is a single query of, or change to, what the [design spec](design-spec.md) defines. Operations are the domain layer, small and orthogonal. They are not CLI commands, though each command runs exactly one: [cli-spec.md](cli-spec.md) gives each command's arguments and maps them onto the input fields here.
 
-The operations are the four that read the tree, [`where`](#where), [`context`](#context), [`list`](#list), and [`kinds`](#kinds); [`version`](#version); and the three that change anything, [`create`](#create), [`adopt`](#adopt), and [`delete`](#delete).
+The operations are the four that read the tree, [`where`](#where), [`context`](#context), [`list`](#list), and [`kinds`](#kinds); [`version`](#version); and the four that change anything, [`create`](#create), [`adopt`](#adopt), [`create-batch`](#create-batch), and [`delete`](#delete).
 
 Terms follow the design spec's [Terms](design-spec.md#terms).
 
 ## Conventions
 
 - **JSON in, JSON out.** Input and output are JSON with published schemas, so an agent can build requests and parse results without scraping text. Every result is wrapped in the [output envelope](#output-envelope).
-- **Schema identifiers.** Shared schemas have short `$id`s (`envelope`, `error`, `warning`, `unit-path`, `unit`, `task-ref`, `create-partial`). Each operation's are `<op>-input` and `<op>-output`.
+- **Schema identifiers.** Shared schemas have short `$id`s (`envelope`, `error`, `warning`, `unit-path`, `unit`, `task-ref`, `create-partial`, `create-batch-partial`). Each operation's are `<op>-input` and `<op>-output`.
 - **Referring to operations and kinds.** Operation names, error kinds, and warning kinds are written in code (`create`, `not-found`), linked on their first mention in a section.
 - **Parameters.** An operation takes a parameter only if it changes the meaning of the result or the work done.
 - **Follow koan.** Where this document is silent on something koan's operations spec covers — the envelope, error precedence, what `io` reports — shingi does what koan does.
@@ -17,11 +17,11 @@ Terms follow the design spec's [Terms](design-spec.md#terms).
 ## Operation kinds
 
 - ***read*** — Changes nothing and takes no lock: [`where`](#where), [`context`](#context), [`list`](#list), [`kinds`](#kinds), and [`version`](#version).
-- ***write*** — Changes koan's tree and the working root: [`create`](#create), [`adopt`](#adopt), and [`delete`](#delete). None takes a lock of its own; koan serializes its own writes, and the manifest's exclusive create settles a race (see [Concurrency](design-spec.md#concurrency)).
+- ***write*** — Changes koan's tree and the working root: [`create`](#create), [`adopt`](#adopt), [`create-batch`](#create-batch), and [`delete`](#delete). None takes a lock of its own; koan serializes its own writes, and the manifest's exclusive create settles a race (see [Concurrency](design-spec.md#concurrency)).
 
 ## Operation template
 
-Every operation is specified with the same parts, in this order. Every part is always present except **Order**, which appears only for operations that return a collection, and **Partial**, which appears only for [`create`](#create) and [`adopt`](#adopt). An empty part is written `**Part:** none.`
+Every operation is specified with the same parts, in this order. Every part is always present except **Order**, which appears only for operations that return a collection, and **Partial**, which appears only for [`create`](#create), [`adopt`](#adopt), and [`create-batch`](#create-batch). An empty part is written `**Part:** none.`
 
 | Part | Content |
 |---|---|
@@ -30,12 +30,12 @@ Every operation is specified with the same parts, in this order. Every part is a
 | **Input schema** | JSON Schema (draft 2020-12), `$id` `<op>-input`. |
 | **Additional validation** | Input rules the schema can't express. All raise `invalid-input`. |
 | **Preconditions** | State that must hold beforehand; the matching errors are under Errors. |
-| **Effects** | What the operation reads and, for `create`, makes, step by step. |
+| **Effects** | What the operation reads and, for a write, makes or removes, step by step. |
 | **Output schema** | JSON Schema of `result`, `$id` `<op>-output`. |
 | **Order** | Collections only: the order of the items. |
 | **Errors** | Table of [error kinds](#error-kinds) and when each is raised, in [precedence](#precedence) order. `io` and `internal` are omitted: any operation can raise `internal`, and any but `version` can raise `io`. |
 | **Warnings** | Table of [warning kinds](#warning-kinds) and when each is reported. |
-| **Partial** | `create` and `adopt` only: what an error reports was made. |
+| **Partial** | `create`, `adopt`, and `create-batch` only: what an error reports was made. |
 | **Retry safety** | Whether running it again after an error, a crash, or an unclear outcome is safe, and with what result. |
 
 ## Output envelope
@@ -48,7 +48,7 @@ Every operation returns one of two shapes:
 ```
 
 - **`result`** — the operation's output, per its Output schema.
-- **`error`** — why it failed, per the [error schema](#error-schema). An error means the operation changed nothing, except a `create` or `adopt` whose error carries a `partial`, and a `delete` that failed removing the manifest, whose tasks are gone.
+- **`error`** — why it failed, per the [error schema](#error-schema). An error means the operation changed nothing, except a `create`, `adopt`, or `create-batch` whose error carries a `partial`, and a `delete` that failed removing the manifest, whose tasks are gone. A `create-batch`'s `partial` also names the units it finished, which exist and stay.
 - **`warnings`** — problems that did not stop it, per the [warning schema](#warning-schema). Present, possibly empty, on success and failure alike.
 
 ```json
@@ -92,17 +92,21 @@ Every operation returns one of two shapes:
 | `invalid-rules` | The rules file is unreadable, not TOML, or breaks the design spec's [Fields](design-spec.md#fields); or the file `--config` names is missing. | `path`: the rules file; `reason`: `missing` (from `--config` only), `unreadable`, `syntax`, or `invalid`; `problems`: for `invalid`, a `{field, reason}` list, `field` the dotted TOML key (`schema`, `kind.branch.suggests`), sorted by `field`; otherwise empty. `code`: the symbolic OS error, for `unreadable`. |
 | `unsupported-format` | The rules file's `schema` is an integer shingi doesn't support. | `path`; `schema`: the one found; `supported`: the ones shingi supports, ascending. |
 | `not-found` | The unit named is not a unit; from [`where`](#where) or [`context`](#context) without one, the current directory is in no unit; or, from [`adopt`](#adopt), the folder to adopt doesn't exist. | `unit`: the path given, or `null`; `missing`: the shortest prefix of `unit` that is not a unit (the first folder on the path that doesn't exist, matches only ignoring case, or holds no `uow.json`), or `null`; `cwd`: the directory given, or `null`; `reason`: `not-a-unit` (a path was given), `outside-root`, `no-unit`, or, from `adopt`, `no-folder` (with `missing` the path itself). |
-| `invalid-name` | A path breaks the design spec's [Names](design-spec.md#names). | `field`: a JSON Pointer to the input field the path came from (`/unit`, `/path`, or, for an entry of `create`'s `after`, `/after/0`); `path`: as given; `index`: the first bad segment's position, from `0`; `segment`: that segment; `reason`: `empty` (a leading, trailing, or doubled `/`, or an empty path), `characters`, `length`, `hyphen` (starts or ends with `-`), or, from [`create`](#create) or [`adopt`](#adopt) only, `path-length` (the whole path is over 193 characters; `index` and `segment` `null`). |
-| `parent-not-found` | `create`'s or `adopt`'s path has more than one segment, and its parent is not a unit. | `parent`: the parent's path; `missing`: as for `not-found`. |
-| `after-lineage` | An entry of `create`'s `after` names the new unit itself, or one of its ancestors. | `field`: a JSON Pointer to the entry (`/after/0`); `after`: the entry; `relation`: `self` or `ancestor`. |
+| `invalid-name` | A path breaks the design spec's [Names](design-spec.md#names). | `field`: a JSON Pointer to the input field the path came from (`/unit`, `/path`, or, for an entry of `create`'s `after`, `/after/0`; from `create-batch`, under the entry, `/units/3/path` or `/units/3/after/0`); `path`: as given; `index`: the first bad segment's position, from `0`; `segment`: that segment; `reason`: `empty` (a leading, trailing, or doubled `/`, or an empty path), `characters`, `length`, `hyphen` (starts or ends with `-`), or, from [`create`](#create) or [`adopt`](#adopt) only, `path-length` (the whole path is over 193 characters; `index` and `segment` `null`). |
+| `parent-not-found` | `create`'s or `adopt`'s path, or the path of a `create-batch` entry, has more than one segment, and its parent is not a unit. | `parent`: the parent's path; `missing`: as for `not-found`. |
+| `after-lineage` | An entry of an `after` names the new unit itself, one of its ancestors, or a path beneath it. | `field`: a JSON Pointer to the entry (`/after/0`); `after`: the entry; `relation`: `self`, `ancestor`, or `descendant`. |
 | `name-taken` | An entry in the parent's folder has the new name in another case; or has it exactly and is, for `create`, a plain folder or a file, or, for `adopt`, a file. | `entry`: the entry's name as on disk; `type`: `unit`, `folder`, or `file` (anything not a directory). |
-| `unknown-kind` | `create`'s or `adopt`'s kind is not defined in the rules. | `kind`; `defined`: every defined kind, in name order. |
-| `after-not-found` | An entry of `create`'s `after` is not a unit. | `field`: a JSON Pointer to the entry (`/after/0`); `after`: the entry; `missing`: as for `not-found`. |
+| `unknown-kind` | The kind of a new unit is not defined in the rules. | `kind`; `defined`: every defined kind, in name order. |
+| `after-not-found` | An entry of an `after` is not a unit, nor, from `create-batch`, in the batch. | `field`: a JSON Pointer to the entry (`/after/0`); `after`: the entry; `missing`: as for `not-found`. |
 | `unit-exists` | The unit's `uow.json` already exists. | `manifest`: its path. |
+| `duplicate-path` | Two entries of `create-batch`'s `units` have the same path, exactly or ignoring ASCII case. | `fields`: JSON Pointers to the two paths, the earlier entry's first (`/units/1/path`, `/units/4/path`); `paths`: the two paths, as given; `reason`: `same`, or `case`. |
+| `after-cycle` | The links a `create-batch` describes hold a cycle. | `cycle`: the paths of the units it runs through, each waiting on the next and the last on the first (see [`create-batch`](#create-batch)). |
 | `has-children` | [`delete`](#delete)'s unit has child units. | `unit`: its path; `children`: the child units' paths, in path order. |
 | `koan-failed` | koan could not be run, or returned an error (see [Running koan](#running-koan)). | `call`: `list`, `create-batch`, `block`, or `delete-folder`; `exit`: koan's exit status, or `null` when it couldn't be run; `error`: koan's `error` object, or `null` when koan printed no envelope. |
 | `io` | The filesystem refused: permission denied, disk full, and the like. | `path`; `code`: the symbolic OS error, e.g. `EACCES`, or `null` when it has none. |
 | `internal` | A bug shingi detects: an unexpected exception, still reported as an envelope. | `{}`. |
+
+From `create-batch`, an error about one entry says which in `field`, a JSON Pointer under that entry: the kinds that carry `field` anyway point there (`/units/3/path`, `/units/3/after/0`), and `unknown-kind` (`/units/3/kind`), `parent-not-found`, `unit-exists`, and `name-taken` (`/units/3/path`) gain it.
 
 `usage` is a CLI-only kind, raised for a malformed command line, as koan's is.
 
@@ -122,7 +126,10 @@ Each operation's Errors table lists its checks in the order it makes them, and a
     "kind": { "type": "string" },
     "message": { "type": "string", "description": "Human-readable; not part of the contract." },
     "details": { "type": "object" },
-    "partial": { "$ref": "create-partial", "description": "create and adopt only, and only when it had made something." }
+    "partial": {
+      "oneOf": [{ "$ref": "create-partial" }, { "$ref": "create-batch-partial" }],
+      "description": "create and adopt (create-partial) and create-batch (create-batch-partial) only, and only when it had made something."
+    }
   },
   "additionalProperties": false
 }
@@ -132,7 +139,7 @@ Each operation's Errors table lists its checks in the order it makes them, and a
 
 A warning is a problem an operation told and went on past. It never changes the outcome, and never guesses: what it reports as `null` stays `null`.
 
-- **One warning per problem:** per unit for `unsupported-manifest` and `undefined-kind`, per unit and role for `missing-task` and `parent-unlinked`, one for `parent-done`, per entry of `after` for `after-unlinked`, per task for `orphan-task`, per koan warning for `koan-warning`.
+- **One warning per problem:** per unit for `unsupported-manifest` and `undefined-kind`, per unit and role for `missing-task` and `parent-unlinked`, per new unit for `parent-done`, per new unit and entry of its `after` for `after-unlinked`, per task for `orphan-task`, per koan warning for `koan-warning`.
 - **Deterministic order:** `warnings` is sorted by `kind`, then by `unit` in [path order](design-spec.md#terms), `null` first, then by `ids`, compared element by element as numbers, then by `details.role`, `start` before `done`, then by `details.after` in path order. `koan-warning`s that still tie keep koan's order, calls in the order shingi made them.
 
 ### Warning kinds
@@ -686,14 +693,14 @@ Make one unit: its start and done tasks in koan, linked to its parent's and to t
 
 **Additional validation:** `title` holds no line break (`\n` or `\r`). No string holds a NUL.
 
-**Preconditions:** `path` is a valid unit path of at most 193 characters, `kind` is defined, the parent is a unit (or `path` is one segment), no entry in the parent's folder has the name, in any case, and every entry of `after` is a unit that is neither the new unit nor one of its ancestors.
+**Preconditions:** `path` is a valid unit path of at most 193 characters, `kind` is defined, the parent is a unit (or `path` is one segment), no entry in the parent's folder has the name, in any case, and every entry of `after` is a unit that is neither the new unit nor one of its ancestors, nor a path beneath it.
 
 **Effects:**
 
 1. **Check,** changing nothing:
    1. [Read the rules](#reading-the-rules).
    2. `path` is a [unit path](#unit-paths) (`invalid-name`) of at most 193 characters, so `Start: <path>` fits koan's 200-character title (`invalid-name`, `reason` `path-length`). Each entry of `after`, in order, is a unit path (`invalid-name`). `kind` is defined (`unknown-kind`).
-   3. No entry of `after` is `path` itself, or the path of one of its ancestors (`after-lineage`): an ancestor's done task waits on the new unit's, so the new unit could never start. The first such entry is the one reported.
+   3. No entry of `after` is `path` itself, the path of one of its ancestors, or a path beneath it (`after-lineage`): an ancestor's done task waits on the new unit's, and a descendant's start task on its start task, so the new unit could never start. The first such entry is the one reported.
    4. With more than one segment, the parent, `path` without its last segment, [resolves](#resolving-a-path) (`parent-not-found`).
    5. List the parent's working folder, or the working root; a working root that doesn't exist yet has no entries. A directory with exactly the name that holds a `uow.json` is `unit-exists`. Any other entry whose name equals the new name, exactly or ignoring ASCII case, is `name-taken`: an existing folder becomes a unit only by [`adopt`](#adopt).
    6. Each entry of `after`, in order, [resolves](#resolving-a-path) (`after-not-found`).
@@ -744,7 +751,7 @@ Make one unit: its start and done tasks in koan, linked to its parent's and to t
 | `invalid-rules`, `unsupported-format` | The rules file is unusable. |
 | `invalid-name` | `path` breaks [Names](design-spec.md#names), or is over 193 characters; or, after that, an entry of `after` breaks Names, the first that does. |
 | `unknown-kind` | `kind` is not defined. |
-| `after-lineage` | An entry of `after` is the new unit or one of its ancestors. |
+| `after-lineage` | An entry of `after` is the new unit, one of its ancestors, or a path beneath it. |
 | `parent-not-found` | The parent is not a unit. |
 | `unit-exists` | The unit's `uow.json` exists: found by the check, with nothing made, or by the manifest's link, with a `partial`. |
 | `name-taken` | An entry in the parent's folder has the name, exactly or in another case: found by the check, with nothing made, or by making the working folder, with a `partial`. |
@@ -870,6 +877,143 @@ Make an existing folder a unit, leaving everything in it as it was: its start an
 **Partial:** `create-partial`, whose `files` can only list `uow.md`, since `adopt` never makes the folder. Undo it as `create`'s.
 
 **Retry safety:** as `create`'s, except that running it again without undoing a `partial` always makes a second pair of tasks, since the folder is still there to adopt.
+
+### create-batch
+
+Make several units in one call: every unit's start and done tasks in one koan `create-batch`, linked to one another and to the units already there, then every working folder and `uow.md`, then every manifest. Each entry is a [`create`](#create) input, and the units made are what one `create` each would have made, parents first. A unit exists once its manifest is written, and not before.
+
+**Kind:** write.
+
+**Input schema:**
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "create-batch-input",
+  "type": "object",
+  "required": ["units"],
+  "properties": {
+    "units": {
+      "type": "array",
+      "maxItems": 500,
+      "items": { "$ref": "create-input" },
+      "description": "The units to make, in any order. At most 500: koan's create-batch takes 1000 tasks, and each unit needs two. [] makes nothing."
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+**Additional validation:** each entry's, as `create`'s.
+
+**Preconditions:** no two entries have the same path, exactly or ignoring ASCII case. Each entry meets `create`'s preconditions, with the batch's own units counted as units: its parent, and every entry of its `after`, is in the batch or is a unit already. No entry of an `after` is the unit itself, one of its ancestors, or one of its descendants; and the batch's own links hold no cycle.
+
+**Effects:**
+
+In what follows a unit is **in the batch** when an entry has its path, and **already there** when it is not in the batch and its path [resolves](#resolving-a-path).
+
+1. **Check,** changing nothing:
+   1. [Read the rules](#reading-the-rules). With no entries, nothing else is done: koan is not run, and the result is no units.
+   2. No two entries' paths are equal, exactly or ignoring ASCII case (`duplicate-path`). The pair reported is the first entry, in input order, whose path equals an earlier one's, with the earliest it equals.
+   3. Each entry, taken in [path order](design-spec.md#terms), passes `create`'s checks, its steps 1.2 to 1.6 in their order. The error is the first entry's that fails one, and that entry's first. The checks are `create`'s, except:
+      - **The parent** is in the batch, or already there (`parent-not-found`).
+      - **With a parent in the batch,** step 1.5 is skipped: the parent's folder is not there yet, as the parent's own check found.
+      - **Each entry of `after`** is in the batch, or already there (`after-not-found`).
+      - **`missing`,** in `parent-not-found` and `after-not-found`, is the shortest prefix of the path that is neither in the batch nor already there.
+   4. The batch's tasks can be put in order, as below (`after-cycle`).
+2. **Find the tasks already there:** the start and done tasks of each parent already there, and the done task of each `after` unit already there, as `create`'s steps 2 and 3 find them. Each unit is read once, in path order: one read of its manifest and one koan `list`. A koan failure here is `koan-failed`, with nothing made. Each link that can't be made is warned and left out, as `create` does: `parent-unlinked` for each entry under that parent and each role, `after-unlinked` for each entry and each of its `after` units.
+3. **Make the tasks.** Make a fresh `id` for each unit. Run one koan `create-batch`, with no `folder` of its own and every unit's two tasks, each as `create` makes it and with its unit's koan folder as its `folder`, in the order below. A task's `blocked_by` holds the IDs of the tasks already there that were found, and the `ref`s of the tasks in the batch. The `ref`s are shingi's own, `s<n>` and `d<n>` for the start and done task of the unit at position `n`, from `0`, in path order; koan never stores them. koan makes every koan folder, and checks every task before it writes one. On failure: `koan-failed`, as `create`'s step 4.
+4. **Link the done tasks already there.** For each parent already there whose done task was found, in path order: when its readiness is `done`, warn `parent-done` for each entry under it and leave it; otherwise run one koan `block`, with the done tasks of every entry under it as `blockers`, in path order. On failure: `koan-failed`, with a `partial`, as `create`'s step 5. Step 1.4 checks the batch's own units and no others, so a cycle that runs through a unit already there is refused here, by koan, as there (`call` `block`, koan's `rule` `cycle`), with every task made: one through links already in koan, and one the batch's own `after`s close, as `HOME-1/followup` after `HOME-1/implementation`, which is already there, with `HOME-1/implementation/x` after `HOME-1/followup`.
+5. **Write the files.**
+   1. For each unit, in path order, so parents first: make its working folder and create its `uow.md`, as `create`'s steps 6.1 and 6.2.
+   2. For each unit, in the order of the start tasks below: write its manifest, as `create`'s step 6.3. That order puts a unit after its parent and after every unit in its `after`, so at every moment the units that exist are linked only to units that exist.
+6. **Report:** run one koan `list`, [as `list` does](#finding-start-and-done-tasks), of the deepest koan folder that holds every unit in the batch — the koan folder of the longest path that is every entry's path or above it, or the koan root when there is none — and read each unit as [`where`](#where) does, its tasks matched from that one `list`. One call serves any batch; `where`'s way would take one for each unit. The warnings are the ones `where` would give for each unit: nothing is said of other units in that folder. A koan failure here is one `koan-failed` warning, its `unit` `null`, as [`list`](#list)'s, and every unit's tasks are `null`.
+
+**The order of tasks.** Every unit in the batch has a start task and a done task. Within the batch, a start task waits on its parent's start task, when the parent is in the batch, and on the done task of every unit in its `after` that is in the batch; a done task waits on its own start task, and on the done task of each of its children in the batch. The order is built one task at a time: of the tasks not yet placed whose every wait is placed, the next is the first in path order of its unit, a unit's start task before its done task. So the order, and with it every task's ID, depends on the entries and not on the order they were given in. When tasks are left and none can be placed, the batch's links hold a cycle. One is found by starting from the first task left, in the same order, and going from each task to the first of its waits that is left, until a task comes up a second time; the cycle is the tasks from its first time to its second. `after-cycle` gives it as the paths of their units, tasks of one unit that follow each other told as one path: each unit waits on the next, and the last on the first.
+
+`create-batch` never removes or replaces anything, and never resumes. A failure after step 3 began leaves what it made, told in `partial`. Until the first manifest is linked no unit exists, and `partial` lists everything made. From then on the units whose manifests are linked exist, whole, and stay: `partial` names them in `units`, and lists only what was made for the others. Once every manifest is linked, an error from step 6 carries no `partial`.
+
+**Output schema:**
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "create-batch-output",
+  "type": "object",
+  "required": ["units"],
+  "properties": {
+    "units": { "type": "array", "items": { "$ref": "unit" } }
+  },
+  "additionalProperties": false
+}
+```
+
+**Order:** `units` is in [path order](design-spec.md#terms).
+
+**Errors,** in this order:
+
+| Kind | When |
+|---|---|
+| `invalid-input` | `units` missing, not an array, or over 500 entries; an unknown field; or any entry's problem, as `create`'s, its `field` under `/units/<n>`. |
+| `invalid-rules`, `unsupported-format` | The rules file is unusable. |
+| `duplicate-path` | Two entries have the same path, exactly or ignoring ASCII case. |
+| `invalid-name`, `unknown-kind`, `after-lineage`, `parent-not-found`, `unit-exists`, `name-taken`, `after-not-found` | As `create`'s, for the first entry in path order that fails any of them, and its first; with `field` pointing into that entry. `unit-exists` and `name-taken` are also found while the files are written, with a `partial`. |
+| `after-cycle` | The batch's own links hold a cycle. |
+| `koan-failed` | As `create`'s: finding the tasks already there, with nothing made; or making the tasks or linking the done tasks already there, with a `partial` when anything was made. A cycle that runs through a unit already there is refused by koan when linking, with every task made. |
+
+`io` and `internal` come with a `partial` when anything was made and not every manifest is linked.
+
+**Warnings:**
+
+| Kind | When |
+|---|---|
+| `parent-done` | The done task of a parent already there was done; the done tasks of the entries under it were not added to its blockers. One for each of those entries. |
+| `parent-unlinked` | The start or done task of a parent already there wasn't found; that link was left out. One for each entry under it and each role. |
+| `after-unlinked` | The done task of an `after` unit already there wasn't found; that link was left out. |
+| `koan-warning` | A koan call warned. |
+| any of [`where`](#where)'s | Reading a new unit back warned. |
+| `koan-failed` | koan failed reading the new units back; every unit's tasks are `null`. One, with `unit` `null`. |
+
+**Partial:** an error after `create-batch` made something, and before every manifest is linked, carries what it made. Absent when nothing was made, and once every unit exists.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "create-batch-partial",
+  "type": "object",
+  "required": ["units", "koan_folders", "tasks", "blocked", "files"],
+  "properties": {
+    "units": { "type": "array", "items": { "$ref": "unit-path" }, "description": "The units that exist: their manifests are linked. In the order they were made. They stay, and nothing else here is theirs." },
+    "koan_folders": { "type": "array", "items": { "type": "string" }, "description": "The koan folders koan reported creating, in tree order, but for those that are a unit in units' koan folder, or above one; none when create-batch failed." },
+    "tasks": { "type": "array", "items": { "type": "integer" }, "description": "The start and done tasks of the units not in units, in ID order." },
+    "blocked": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["task", "added"],
+        "properties": {
+          "task": { "type": "integer", "description": "The done task of a parent already there." },
+          "added": { "type": "array", "minItems": 1, "items": { "type": "integer" }, "description": "The blockers added to it that are among tasks." }
+        },
+        "additionalProperties": false
+      },
+      "description": "The blockers added to done tasks already there, in ID order of task."
+    },
+    "files": { "type": "array", "items": { "type": "string" }, "description": "The working folders and uow.md files made for the units not in units, parents first, each folder before its uow.md; never one already there." }
+  },
+  "additionalProperties": false
+}
+```
+
+Undo it in this order: `koan delete-folder`, with `recursive`, each of `koan_folders` that is not inside another of them, which removes every task in it; `koan delete` each of `tasks` that is left, the ones in a koan folder that was already there; then remove `files`, last first. A task koan removes is taken out of every `blocked_by` it was put in, among them those of the units in `units`. A batch of 500 units is undone in a few calls this way, where a `koan delete` for each task would be a thousand. Then run `create-batch` again without the entries whose paths are in `units`: their parents, and the units they come after, are already there now, and are linked to as such. No unit in `units` came after one that was not made, so no link of theirs is lost.
+
+**Retry safety:**
+
+- After a `koan-failed` whose `error` is `null`, from making the tasks or linking the done tasks already there: an unclear outcome, below.
+- After any other error without `partial`: safe. Nothing was made, or every unit exists and running it again is `unit-exists`.
+- After an error with `partial`: undo what it lists, drop the entries in `units`, and run it again. Run again as it stands, it fails on the first entry, in path order, that it made a unit or a folder for: `unit-exists` for a unit in `units`, `name-taken` for a folder it made. When it had made neither, it makes a second set of tasks, and the first are orphans that still block the done tasks they were added to.
+- After success: running it again is `unit-exists`.
+- After a crash or an unclear outcome: not safe as it stands. Run [`list`](#list) with no unit: the entries it reports as units were made, and are dropped; each `orphan-task` carrying a fresh `id` is what was left for the others, to delete before running it again.
 
 ### delete
 
