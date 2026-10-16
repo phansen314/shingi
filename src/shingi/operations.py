@@ -4,6 +4,7 @@ Each operation takes its input and the --config file, and returns its result and
 """
 
 import errno
+import heapq
 import json
 import os
 import uuid
@@ -116,13 +117,9 @@ def list_units(inp, config):
     warnings += koan_warnings
     found = []
     for path, manifest in manifests.items():
-        start = done = None
-        if manifest is not None and tasks is not None:
-            kfolder = units.koan_folder(rules, path)
-            start = units.match(tasks, kfolder, manifest["id"], "shingi-start")
-            done = units.match(tasks, kfolder, manifest["id"], "shingi-done")
-            warnings += units.missing_tasks(path, start, done)
-        found.append(units.build_unit(rules, path, manifest, start, done))
+        unit, problems = units.unit_from(rules, path, manifest, tasks)
+        found.append(unit)
+        warnings += problems
 
     warnings += [orphan_task(rules, task, by_id) for task in tasks or [] if not claimed(rules, task, by_id)]
     return {"root": root, "units": found}, units.sort_warnings(warnings)
@@ -199,86 +196,20 @@ def make_unit(inp, config, adopting):
     rules = rules_file.load(config)
     path, kind = inp["path"], inp["kind"]
     after = inp.get("after", [])  # create only: adopt's input has none
-    units.check_path(path, "/path", creating=True)
-    for index, entry in enumerate(after):
-        units.check_path(entry, f"/after/{index}")
-    if kind not in rules.kinds:
-        raise OperationError(
-            "unknown-kind", f"kind {kind!r} is not defined", {"kind": kind, "defined": sorted(rules.kinds)}
-        )
-    for index, entry in enumerate(after):
-        if entry == path or path.startswith(entry + "/"):
-            relation = "self" if entry == path else "ancestor"
-            raise OperationError(
-                "after-lineage",
-                f"{path} can't come after {'itself' if entry == path else 'its ancestor ' + entry}",
-                {"field": f"/after/{index}", "after": entry, "relation": relation},
-            )
+    check_unit(rules, inp, "", adopting)
     parent = units.parent_of(path)
-    parent_start = parent_done = None
-    if parent is not None:
-        try:
-            units.resolve(rules, parent)
-        except OperationError as error:
-            raise OperationError(
-                "parent-not-found",
-                f"parent {parent} is not a unit",
-                {"parent": parent, "missing": error.details["missing"]},
-            )
-    folder = units.working_folder(rules, path)
-    check_entry(folder, path, adopting)
-    for index, entry in enumerate(after):
-        try:
-            units.resolve(rules, entry)
-        except OperationError as error:
-            raise OperationError(
-                "after-not-found",
-                f"{entry} is not a unit",
-                {"field": f"/after/{index}", "after": entry, "missing": error.details["missing"]},
-            )
-    warnings = []
-    if parent is not None:
-        parent_manifest, _ = units.check_manifest(rules, parent)
-        if parent_manifest is None:
-            reason = "unsupported-manifest"
-        else:
-            reason = "missing-task"
-            parent_start, parent_done, koan_warnings = units.find_tasks(rules, parent, parent_manifest["id"])
-            warnings += koan_warnings
-        for role, task in (("start", parent_start), ("done", parent_done)):
-            if task is None:
-                warnings.append(units.warning(
-                    "parent-unlinked",
-                    f"{parent}'s {role} task wasn't found, so {path} isn't linked to it",
-                    path,
-                    details={"parent": parent, "role": role, "reason": reason},
-                ))
-
-    after_done = []
-    for entry in after:
-        entry_manifest, _ = units.check_manifest(rules, entry)
-        done = None
-        if entry_manifest is None:
-            reason = "unsupported-manifest"
-        else:
-            reason = "missing-task"
-            _, done, koan_warnings = units.find_tasks(rules, entry, entry_manifest["id"])
-            warnings += koan_warnings
-        if done is None:
-            warnings.append(units.warning(
-                "after-unlinked",
-                f"{entry}'s done task wasn't found, so {path} doesn't wait on it",
-                path,
-                details={"after": entry, "reason": reason},
-            ))
-        else:
-            after_done.append(done["id"])
+    found, warnings = find_links(rules, [] if parent is None else [parent])
+    after_found, koan_warnings = find_links(rules, after)
+    found.update(after_found)
+    warnings += koan_warnings + unlinked(path, parent, after, found)
+    parent_start, parent_done_task, _ = found.get(parent, (None, None, None))
+    after_done = [found[entry][1]["id"] for entry in after if found[entry][1] is not None]
 
     unit_id = str(uuid.uuid4())
     made = {"koan_folders": [], "tasks": [], "blocked": None, "files": []}
     try:
         write_unit(
-            rules, inp, path, kind, unit_id, adopting, parent, parent_start, parent_done, after_done, made, warnings
+            rules, inp, path, kind, unit_id, adopting, parent, parent_start, parent_done_task, after_done, made, warnings
         )
     except Exception as exc:
         raise with_partial(exc, made, warnings)
@@ -286,8 +217,136 @@ def make_unit(inp, config, adopting):
     return {"unit": unit}, units.sort_warnings(warnings + read_warnings)
 
 
+def check_unit(rules, inp, prefix, adopting=False, batch=frozenset()):
+    """create's checks, its steps 1.2 to 1.6, of one new unit, changing nothing. `prefix` is where
+    its input is: "" for create's, "/units/<n>" for a create-batch entry; `batch` is the paths of
+    the batch's units, counted as units though they aren't there yet."""
+    path, kind = inp["path"], inp["kind"]
+    after = inp.get("after", [])
+    # From create-batch, an error about an entry says which, in `field`.
+    at = {"field": f"{prefix}/path"} if prefix else {}
+    units.check_path(path, f"{prefix}/path", creating=True)
+    for index, entry in enumerate(after):
+        units.check_path(entry, f"{prefix}/after/{index}")
+    if kind not in rules.kinds:
+        raise OperationError("unknown-kind", f"kind {kind!r} is not defined", {
+            **({"field": f"{prefix}/kind"} if prefix else {}), "kind": kind, "defined": sorted(rules.kinds),
+        })
+    for index, entry in enumerate(after):
+        relation = lineage(path, entry)
+        if relation is not None:
+            raise OperationError(
+                "after-lineage",
+                f"{path} can't come after {'itself' if relation == 'self' else f'its {relation} {entry}'}",
+                {"field": f"{prefix}/after/{index}", "after": entry, "relation": relation},
+            )
+    parent = units.parent_of(path)
+    if parent is not None:
+        missing = missing_prefix(rules, parent, batch)
+        if missing is not None:
+            raise OperationError(
+                "parent-not-found", f"parent {parent} is not a unit", {**at, "parent": parent, "missing": missing}
+            )
+    if parent not in batch:  # a parent in the batch has no folder yet: its own check found that
+        check_entry(units.working_folder(rules, path), path, adopting, at)
+    for index, entry in enumerate(after):
+        missing = missing_prefix(rules, entry, batch)
+        if missing is not None:
+            raise OperationError(
+                "after-not-found",
+                f"{entry} is not a unit",
+                {"field": f"{prefix}/after/{index}", "after": entry, "missing": missing},
+            )
+
+
+def lineage(path, entry):
+    """How `entry`, in the after of a new unit at `path`, is in its lineage, or None."""
+    if entry == path:
+        return "self"
+    if path.startswith(entry + "/"):
+        return "ancestor"
+    if entry.startswith(path + "/"):
+        return "descendant"
+    return None
+
+
+def missing_prefix(rules, path, batch):
+    """The shortest prefix of `path` that is neither in `batch` nor a unit, or None."""
+    segments = path.split("/")
+    for i in range(1, len(segments) + 1):
+        prefix = "/".join(segments[:i])
+        if prefix in batch:
+            continue
+        try:
+            units.resolve(rules, prefix)
+        except OperationError:
+            return prefix
+    return None
+
+
+def find_links(rules, paths):
+    """The start and done tasks of each unit in `paths`, units already there, read in the order
+    given: path -> (start, done, why a task not found wasn't), and koan's warnings. Raises
+    koan-failed."""
+    found, warnings = {}, []
+    for path in paths:
+        manifest, _ = units.check_manifest(rules, path)
+        if manifest is None:
+            found[path] = (None, None, "unsupported-manifest")
+        else:
+            start, done, koan_warnings = units.find_tasks(rules, path, manifest["id"])
+            found[path] = (start, done, "missing-task")
+            warnings += koan_warnings
+    return found, warnings
+
+
+def unlinked(path, parent, after, found):
+    """The new unit's parent-unlinked and after-unlinked warnings: one for each link to a unit
+    already there, in `found`, whose task wasn't found."""
+    warnings = []
+    if parent in found:
+        start, done, reason = found[parent]
+        for role, task in (("start", start), ("done", done)):
+            if task is None:
+                warnings.append(units.warning(
+                    "parent-unlinked",
+                    f"{parent}'s {role} task wasn't found, so {path} isn't linked to it",
+                    path,
+                    details={"parent": parent, "role": role, "reason": reason},
+                ))
+    for entry in after:
+        if entry in found and found[entry][1] is None:
+            warnings.append(units.warning(
+                "after-unlinked",
+                f"{entry}'s done task wasn't found, so {path} doesn't wait on it",
+                path,
+                details={"after": entry, "reason": found[entry][2]},
+            ))
+    return warnings
+
+
+def unit_task(path, unit_id, role, blocked_by):
+    """One of a new unit's two tasks, its `role` start or done."""
+    return {
+        "title": f"{role.capitalize()}: {path}",
+        "tags": ["shingi", f"shingi-{role}"],
+        "extra": {"source": f"shingi-{role}", "shingi-unit": unit_id},
+        "blocked_by": blocked_by,
+    }
+
+
+def parent_done(parent, done, path):
+    return units.warning(
+        "parent-done",
+        f"{parent}'s done task {done['id']} is already done, so {path} doesn't block it",
+        path,
+        [done["id"]],
+        {"parent": parent},
+    )
+
+
 def write_unit(
-    rules, inp, path, kind, unit_id, adopting, parent, parent_start, parent_done, after_done, made, warnings
+    rules, inp, path, kind, unit_id, adopting, parent, parent_start, parent_done_task, after_done, made, warnings
 ):
     """create's steps 4 to 6: make the tasks, link the parent, write the files, recording in
     `made` what each step made."""
@@ -295,20 +354,10 @@ def write_unit(
         batch, koan_warnings = koan.create_batch({
             "folder": units.koan_folder(rules, path),
             "tasks": [
-                {
-                    "ref": "start",
-                    "title": f"Start: {path}",
-                    "tags": ["shingi", "shingi-start"],
-                    "extra": {"source": "shingi-start", "shingi-unit": unit_id},
-                    "blocked_by": ([parent_start["id"]] if parent_start else []) + after_done,
-                },
-                {
-                    "ref": "done",
-                    "title": f"Done: {path}",
-                    "tags": ["shingi", "shingi-done"],
-                    "extra": {"source": "shingi-done", "shingi-unit": unit_id},
-                    "blocked_by": ["start"],
-                },
+                {"ref": "start", **unit_task(
+                    path, unit_id, "start", ([parent_start["id"]] if parent_start else []) + after_done
+                )},
+                {"ref": "done", **unit_task(path, unit_id, "done", ["start"])},
             ],
         })
     except OperationError as error:
@@ -320,20 +369,21 @@ def write_unit(
     made["tasks"] = [batch["refs"]["start"], batch["refs"]["done"]]
     warnings += koan_warnings
 
-    if parent_done and parent_done["readiness"] == "done":
-        warnings.append(units.warning(
-            "parent-done",
-            f"{parent}'s done task {parent_done['id']} is already done, so {path} doesn't block it",
-            path,
-            [parent_done["id"]],
-            {"parent": parent},
-        ))
-    elif parent_done:
+    if parent_done_task and parent_done_task["readiness"] == "done":
+        warnings.append(parent_done(parent, parent_done_task, path))
+    elif parent_done_task:
         added = [batch["refs"]["done"]]
-        _, koan_warnings = koan.block(parent_done["id"], added)
-        made["blocked"] = {"task": parent_done["id"], "added": added}
+        _, koan_warnings = koan.block(parent_done_task["id"], added)
+        made["blocked"] = {"task": parent_done_task["id"], "added": added}
         warnings += koan_warnings
 
+    write_files(rules, inp, path, adopting, made["files"])
+    write_manifest(path, units.working_folder(rules, path), {"schema": 1, "id": unit_id, "kind": kind})
+
+
+def write_files(rules, inp, path, adopting, files, at=None):
+    """create's steps 6.1 and 6.2: make the working folder, unless `adopting`, and create uow.md,
+    adding to `files` each as it is made."""
     folder = units.working_folder(rules, path)
     if not adopting:
         try:
@@ -341,21 +391,248 @@ def write_unit(
                 rules.working_root.mkdir(parents=True, exist_ok=True)
             folder.mkdir()
         except FileExistsError:
-            raise name_taken(path, folder.name, entry_type(folder))
+            raise name_taken(path, folder.name, entry_type(folder), at)
         except OSError as exc:
             raise io_error(exc, folder)
-        made["files"].append(str(folder))
+        files.append(str(folder))
     title = inp.get("title") or path.rpartition("/")[2]
     notes = folder / units.NOTES
     try:
         with open(notes, "x", encoding="utf-8") as f:
-            made["files"].append(str(notes))
+            files.append(str(notes))
             f.write(notes_text(title, inp.get("notes", "")))
     except FileExistsError:
         pass
     except OSError as exc:
         raise io_error(exc, notes)
-    write_manifest(path, folder, {"schema": 1, "id": unit_id, "kind": kind})
+
+
+START, DONE = 0, 1  # a batch's task is (n, START) or (n, DONE), for the unit at position n
+
+
+def create_batch(inp, config):
+    """Make several units in one call (operations.md, create-batch)."""
+    inputs.check("create-batch", inp)
+    rules = rules_file.load(config)
+    if not inp["units"]:
+        return {"units": []}, []
+    check_duplicates(inp["units"])
+    numbered = sorted(enumerate(inp["units"]), key=lambda item: units.path_key(item[1]["path"]))
+    batch = {entry["path"] for entry in inp["units"]}
+    for index, entry in numbered:
+        check_unit(rules, entry, f"/units/{index}", batch=batch)
+    # From here a unit is known by its position n in path order.
+    fields = [f"/units/{index}/path" for index, _ in numbered]
+    entries = [entry for _, entry in numbered]
+    paths = [entry["path"] for entry in entries]
+    waits = batch_waits(entries, {path: n for n, path in enumerate(paths)})
+    order = task_order(waits, paths)
+
+    parents = {units.parent_of(path) for path in paths} - batch - {None}
+    afters = {entry for unit in entries for entry in unit.get("after", [])} - batch
+    found, warnings = find_links(rules, sorted(parents | afters, key=units.path_key))
+    for entry in entries:
+        warnings += unlinked(entry["path"], units.parent_of(entry["path"]), entry.get("after", []), found)
+
+    made = {"units": [], "koan_folders": [], "tasks": {}, "blocked": [], "files": {}}
+    try:
+        write_batch(rules, entries, fields, waits, order, found, made, warnings)
+    except Exception as exc:
+        raise with_partial(exc, batch_partial(rules, paths, made), warnings)
+    return read_batch(rules, paths, warnings)
+
+
+def check_duplicates(entries):
+    """No two entries' paths are the same, exactly or ignoring ASCII case (duplicate-path)."""
+    seen = {}
+    for index, entry in enumerate(entries):
+        earlier = seen.setdefault(entry["path"].encode().lower(), index)  # bytes: ASCII case only
+        if earlier != index:
+            paths = [entries[earlier]["path"], entry["path"]]
+            same = paths[0] == paths[1]
+            raise OperationError(
+                "duplicate-path",
+                f"{paths[1]} is given twice" if same else f"{paths[0]} and {paths[1]} differ only in case",
+                {
+                    "fields": [f"/units/{earlier}/path", f"/units/{index}/path"],
+                    "paths": paths,
+                    "reason": "same" if same else "case",
+                },
+            )
+
+
+def batch_waits(entries, position):
+    """What each of the batch's tasks waits on in the batch: its parent's start task and the done
+    task of each unit in its after, for a start task; its own start task and its children's done
+    tasks, for a done task."""
+    waits = {}
+    for n, entry in enumerate(entries):
+        parent = units.parent_of(entry["path"])
+        waits[n, START] = [(position[parent], START)] if parent in position else []
+        waits[n, START] += [(position[other], DONE) for other in entry.get("after", []) if other in position]
+        waits[n, DONE] = [(n, START)]
+    for n, entry in enumerate(entries):
+        parent = units.parent_of(entry["path"])
+        if parent in position:
+            waits[position[parent], DONE].append((n, DONE))
+    return waits
+
+
+def task_order(waits, paths):
+    """The batch's tasks in the order they are made: each time, of the tasks whose every wait is
+    placed, the first in path order of its unit, start before done. Raises after-cycle."""
+    waiting = {task: len(on) for task, on in waits.items()}
+    dependents = {task: [] for task in waits}
+    for task, on in waits.items():
+        for other in on:
+            dependents[other].append(task)
+    ready = [task for task, count in waiting.items() if count == 0]
+    heapq.heapify(ready)
+    order = []
+    while ready:
+        task = heapq.heappop(ready)
+        order.append(task)
+        for other in dependents[task]:
+            waiting[other] -= 1
+            if waiting[other] == 0:
+                heapq.heappush(ready, other)
+    if len(order) < len(waits):
+        raise after_cycle(waits, set(order), paths)
+    return order
+
+
+def after_cycle(waits, placed, paths):
+    """after-cycle, with one cycle: from the first task left, each time the first of its waits
+    left, until a task comes up again."""
+    task, seen = min(task for task in waits if task not in placed), []
+    while task not in seen:
+        seen.append(task)
+        task = min(other for other in waits[task] if other not in placed)
+    cycle = []
+    for n, _ in seen[seen.index(task):]:
+        if not cycle or cycle[-1] != paths[n]:
+            cycle.append(paths[n])
+    if len(cycle) > 1 and cycle[-1] == cycle[0]:
+        cycle.pop()
+    return OperationError(
+        "after-cycle",
+        "the batch's afters can never all be met: " + " waits on ".join(cycle + cycle[:1]),
+        {"cycle": cycle},
+    )
+
+
+def ref(task):
+    """A batch task's ref in koan's create-batch: s<n> or d<n>."""
+    n, role = task
+    return f"{'sd'[role]}{n}"
+
+
+def write_batch(rules, entries, fields, waits, order, found, made, warnings):
+    """create-batch's steps 3 to 5: make the tasks, link the parents already there, write the
+    files, recording in `made` what each step made, and for which unit."""
+    paths = [entry["path"] for entry in entries]
+    ids = [str(uuid.uuid4()) for _ in entries]
+    tasks = []
+    for n, role in order:
+        entry, path = entries[n], paths[n]
+        blocked_by = [ref(other) for other in waits[n, role]]
+        if role == START:
+            parent = units.parent_of(path)
+            if parent in found and found[parent][0] is not None:
+                blocked_by.append(found[parent][0]["id"])
+            blocked_by += [
+                found[other][1]["id"]
+                for other in entry.get("after", [])
+                if other in found and found[other][1] is not None
+            ]
+        tasks.append({
+            "ref": ref((n, role)),
+            "folder": units.koan_folder(rules, path),
+            **unit_task(path, ids[n], ("start", "done")[role], blocked_by),
+        })
+    try:
+        result, koan_warnings = koan.create_batch({"tasks": tasks})
+    except OperationError as error:
+        koan_error = error.details.get("error") or {}
+        if koan_error.get("changed_paths"):  # only then are its ids the tasks it made
+            made["tasks"].update(dict.fromkeys(koan_error["ids"]))  # no unit exists yet to keep them for
+        raise
+    warnings += koan_warnings
+    made["koan_folders"] = list(result["folders_created"])
+    task_ids = {task: result["refs"][ref(task)] for task in order}
+    for task, task_id in task_ids.items():
+        made["tasks"][task_id] = paths[task[0]]
+
+    for parent in sorted({units.parent_of(path) for path in paths} & found.keys(), key=units.path_key):
+        done = found[parent][1]
+        if done is None:
+            continue
+        under = [n for n, path in enumerate(paths) if units.parent_of(path) == parent]
+        if done["readiness"] == "done":
+            warnings += [parent_done(parent, done, paths[n]) for n in under]
+            continue
+        added = [task_ids[n, DONE] for n in under]
+        _, koan_warnings = koan.block(done["id"], added)
+        made["blocked"].append({"task": done["id"], "added": added})
+        warnings += koan_warnings
+
+    for n, entry in enumerate(entries):
+        write_files(rules, entry, paths[n], False, made["files"].setdefault(paths[n], []), {"field": fields[n]})
+    # In start-task order, so a unit's manifest comes after its parent's and those of the units it
+    # comes after: the units that exist are only ever linked to units that exist.
+    for n, role in order:
+        if role == START:
+            manifest = {"schema": 1, "id": ids[n], "kind": entries[n]["kind"]}
+            write_manifest(paths[n], units.working_folder(rules, paths[n]), manifest, {"field": fields[n]})
+            made["units"].append(paths[n])
+
+
+def batch_partial(rules, paths, made):
+    """create-batch-partial: the units made, and what was made for the others."""
+    kept = set(made["units"])
+    kept_folders = [units.koan_folder(rules, path) for path in kept]
+    tasks = sorted(task for task, path in made["tasks"].items() if path not in kept)
+    left = set(tasks)
+    blocked = []
+    for link in sorted(made["blocked"], key=lambda link: link["task"]):
+        added = [task for task in link["added"] if task in left]
+        if added:
+            blocked.append({"task": link["task"], "added": added})
+    return {
+        "units": made["units"],
+        "koan_folders": [
+            folder for folder in made["koan_folders"]
+            if not any(other == folder or other.startswith(folder + "/") for other in kept_folders)
+        ],
+        "tasks": tasks,
+        "blocked": blocked,
+        "files": [file for path in paths if path not in kept for file in made["files"].get(path, [])],
+    }
+
+
+def read_batch(rules, paths, warnings):
+    """create-batch's step 6: every new unit, read back from one koan list of the deepest koan
+    folder that holds them all."""
+    common = []
+    for segments in zip(*(path.split("/") for path in paths)):
+        if any(segment != segments[0] for segment in segments):
+            break
+        common.append(segments[0])
+    folder = units.koan_folder(rules, "/".join(common)) if common else rules.koan_root
+    try:
+        tasks, koan_warnings = koan.list_tasks(folder, recursive=True)
+    except OperationError as error:
+        if error.kind != "koan-failed":
+            raise
+        tasks, koan_warnings = None, units.koan_failed(error, None)
+    warnings = warnings + koan_warnings
+    found = []
+    for path in paths:
+        manifest, problems = units.check_manifest(rules, path)
+        unit, missing = units.unit_from(rules, path, manifest, tasks)
+        found.append(unit)
+        warnings += problems + missing
+    return {"units": found}, units.sort_warnings(warnings)
 
 
 def with_partial(exc, made, warnings):
@@ -365,7 +642,7 @@ def with_partial(exc, made, warnings):
         "internal", f"unexpected {type(exc).__name__}: {exc}"
     )
     error.warnings = units.sort_warnings(warnings + error.warnings)
-    if made["koan_folders"] or made["tasks"] or made["blocked"] or made["files"]:
+    if any(made.values()):
         error.partial = made
     return error
 
@@ -382,18 +659,18 @@ def notes_text(title, notes):
     return text
 
 
-def check_entry(folder, path, adopting):
+def check_entry(folder, path, adopting, at=None):
     """Check what is at the new unit's name in its parent's folder (operations.md, create step 1.5)."""
     name = folder.name
     if (folder / units.MANIFEST).is_file():
-        raise OperationError("unit-exists", f"{path} already exists", {"manifest": str(folder / units.MANIFEST)})
+        raise unit_exists(path, folder / units.MANIFEST, at)
     siblings = folder.parent.iterdir() if folder.parent.exists() else []  # no working root yet
     for entry in sorted(siblings, key=lambda e: e.name.encode()):
         if entry.name.encode().lower() != name.encode().lower():  # ASCII case only
             continue
         # Only adopt may find something at the name: a folder with exactly it.
         if entry.name != name or not adopting or not entry.is_dir():
-            raise name_taken(path, entry.name, entry_type(entry))
+            raise name_taken(path, entry.name, entry_type(entry), at)
     if adopting and not folder.is_dir():
         raise OperationError(
             "not-found",
@@ -408,11 +685,15 @@ def entry_type(entry):
     return "unit" if (entry / units.MANIFEST).is_file() else "folder"
 
 
-def name_taken(path, entry, kind):
-    return OperationError("name-taken", f"{entry} is in the way of {path}", {"entry": entry, "type": kind})
+def name_taken(path, entry, kind, at=None):
+    return OperationError("name-taken", f"{entry} is in the way of {path}", {**(at or {}), "entry": entry, "type": kind})
 
 
-def write_manifest(path, folder, manifest):
+def unit_exists(path, manifest, at=None):
+    return OperationError("unit-exists", f"{path} already exists", {**(at or {}), "manifest": str(manifest)})
+
+
+def write_manifest(path, folder, manifest, at=None):
     """Write uow.json once: a hidden temp file, flushed, then hard-linked into place. A temp file
     that can't be removed is left: it is hidden."""
     temp = folder / f".{units.MANIFEST}.{uuid.uuid4().hex}.tmp"
@@ -426,7 +707,7 @@ def write_manifest(path, folder, manifest):
         writing = target
         os.link(temp, target)
     except FileExistsError:
-        raise OperationError("unit-exists", f"{path} already exists", {"manifest": str(target)})
+        raise unit_exists(path, target, at)
     except OSError as exc:
         raise io_error(exc, writing)
     finally:

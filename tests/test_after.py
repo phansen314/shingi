@@ -105,6 +105,12 @@ class AfterTest(ShingiTestCase):
                 self.assertEqual(error["details"], {"field": "/after/0", "after": after, "relation": relation})
         self.assertFalse((self.working / "HOME-1/a/b").exists())
 
+    def test_refuses_a_path_beneath_the_unit(self):
+        self.create("HOME-1", "group")
+        error = self.refused("HOME-1/a", "group", "--after", "HOME-1/a/b")
+        self.assertEqual(error["kind"], "after-lineage")
+        self.assertEqual(error["details"], {"field": "/after/0", "after": "HOME-1/a/b", "relation": "descendant"})
+
     def test_a_name_that_only_starts_the_same_is_no_ancestor(self):
         self.create("HOME-1", "group")
         self.create("HOME-10", "group", "--after", "HOME-1")

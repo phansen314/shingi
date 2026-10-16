@@ -157,7 +157,43 @@ check "after a bad name" 1 '.error.kind == "invalid-name" and .error.details.fie
 check "after the same unit twice" 1 '.error.details.problems[0].field == "/after/1"' -- create HOME-8/x group --after HOME-1/a,HOME-1/a
 expect "nothing made by a refusal" '[[ ! -e $HOME/shingi-root/HOME-8/x ]]'
 check "adopt has no --after" 2 '.error.kind == "usage"' -- adopt HOME-8/x group --after HOME-1/a
+check "after a path beneath it" 1 '.error.details == {field: "/after/0", after: "HOME-8/x/y", relation: "descendant"}' \
+	-- create HOME-8/x group --after HOME-8/x/y
 koan delete-folder -r /shingi/HOME-8 && rm -rf "$HOME/shingi-root/HOME-8"  # out of the way of list's checks
+
+echo "== a whole tree at once"
+check "create-batch needs --input" 2 '.error.kind == "usage"' -- create-batch
+check "no units: nothing happens" 0 '.result.units == [] and .warnings == []' -- create-batch -i - <<<'{"units": []}'
+check "a story, in any order" 0 '[.result.units[].path] == ["HOME-9", "HOME-9/implementation", "HOME-9/implementation/1-schema", "HOME-9/research", "HOME-9/review", "HOME-9/setup"] and .warnings == []' \
+	-- create-batch -i - <<'EOF'
+{"units": [
+  {"path": "HOME-9/review", "kind": "group", "after": ["HOME-9/implementation"]},
+  {"path": "HOME-9/implementation/1-schema", "kind": "branch", "title": "foo: schema changes"},
+  {"path": "HOME-9", "kind": "group", "title": "A story", "notes": "Story: all of it."},
+  {"path": "HOME-9/research", "kind": "group", "after": ["HOME-9/setup"]},
+  {"path": "HOME-9/implementation", "kind": "group", "after": ["HOME-9/research"]},
+  {"path": "HOME-9/setup", "kind": "group"}
+]}
+EOF
+batch=$out
+s9() { jq ".result.units[] | select(.path == \"$1\") | .$2.id" <<<"$batch"; }
+expect "research waits on its parent's start and setup's done" \
+	'[[ $("$KOAN" show '"$(s9 HOME-9/research start)"' | jq -c .result.task.blocked_by) == "[$(s9 HOME-9 start),$(s9 HOME-9/setup done)]" ]]'
+expect "the story is done when its children are" \
+	'[[ $("$KOAN" show '"$(s9 HOME-9 done)"' | jq -c ".result.task.blocked_by | length") == 5 ]]'
+expect "the notes" '[[ $(cat "$HOME/shingi-root/HOME-9/uow.md") == $'"'"'# A story\n\nStory: all of it.'"'"' ]]'
+check "more of it, after a unit already there" 0 '.result.units[0].start.readiness == "blocked" and .warnings == []' \
+	-- create-batch -i - <<<'{"units": [{"path": "HOME-9/followup", "kind": "group", "after": ["HOME-9/review"]}]}'
+expect "added to the story's done task" \
+	'[[ $("$KOAN" show '"$(s9 HOME-9 done)"' | jq -c ".result.task.blocked_by | length") == 6 ]]'
+check "the same path twice, in another case" 1 '.error.kind == "duplicate-path" and .error.details == {fields: ["/units/0/path", "/units/1/path"], paths: ["X", "x"], reason: "case"}' \
+	-- create-batch -i - <<<'{"units": [{"path": "X", "kind": "group"}, {"path": "x", "kind": "group"}]}'
+check "an entry's error says which" 1 '.error.kind == "after-not-found" and .error.details.field == "/units/1/after/0"' \
+	-- create-batch -i - <<<'{"units": [{"path": "X", "kind": "group"}, {"path": "Y", "kind": "group", "after": ["Z"]}]}'
+check "afters that can never be met" 1 '.error.kind == "after-cycle" and .error.details.cycle == ["X", "Y"]' \
+	-- create-batch -i - <<<'{"units": [{"path": "X", "kind": "group", "after": ["Y"]}, {"path": "Y", "kind": "group", "after": ["X"]}]}'
+expect "nothing made by a refusal" '[[ ! -e $HOME/shingi-root/X && ! -e $HOME/shingi-root/Y ]]'
+koan delete-folder -r /shingi/HOME-9 && rm -rf "$HOME/shingi-root/HOME-9"  # out of the way of list's checks
 
 echo "== where from a directory"
 mkdir -p "$HOME/shingi-root/HOME-1/a/logs/2026" "$HOME/shingi-root/scratch"

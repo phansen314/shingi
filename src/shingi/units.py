@@ -282,6 +282,19 @@ def read_unit(rules, path):
     return build_unit(rules, path, manifest, start, done), sort_warnings(warnings)
 
 
+def unit_from(rules, path, manifest, tasks):
+    """The unit object and its missing-task warnings, its tasks matched from `tasks`, a recursive
+    koan list of a folder that holds it, or None when koan failed."""
+    start = done = None
+    warnings = []
+    if manifest is not None and tasks is not None:
+        kfolder = koan_folder(rules, path)
+        start = match(tasks, kfolder, manifest["id"], "shingi-start")
+        done = match(tasks, kfolder, manifest["id"], "shingi-done")
+        warnings = missing_tasks(path, start, done)
+    return build_unit(rules, path, manifest, start, done), warnings
+
+
 def missing_tasks(path, start, done):
     """A missing-task warning for each of the unit's start and done tasks that wasn't found."""
     return [

@@ -29,8 +29,10 @@ COMMANDS = {
         {"--title": "title", "--notes": "notes", "--notes-file": "notes@file", "--after": "after@list"},
     ),
     "adopt": (operations.adopt, ["path", "kind"], {"--title": "title"}),
+    "create-batch": (operations.create_batch, [], {}),
     "delete": (operations.delete, ["unit"], {}),
 }
+INPUT_ONLY = {"create-batch"}  # commands whose input comes only from --input
 
 
 # Each command's help: its synopsis and what it does.
@@ -45,6 +47,7 @@ HELP = {
         "Make one unit: its start and done tasks in koan, its working folder, uow.md, and manifest.",
     ),
     "adopt": ("shingi adopt <path> <kind> [--title <text>]", "Make an existing folder a unit, leaving what is in it."),
+    "create-batch": (None, "Make several units in one call, from {\"units\": [...]}, each entry a create input."),
     "delete": ("shingi delete <unit>", "Make a unit a plain folder again: remove its tasks and manifest, and leave its files."),
 }
 
@@ -72,7 +75,8 @@ def help_text(command=None):
         lines = [f"  {name:<{width}}  {summary}" for name, (_, summary) in HELP.items()]
         return "Usage: shingi <command> [options and arguments]\n\nCommands:\n" + "\n".join(lines) + "\n\n" + GLOBAL_OPTIONS
     synopsis, summary = HELP[command]
-    return f"Usage: {synopsis}\n       shingi {command} -i <file>\n\n{summary}\n\n{GLOBAL_OPTIONS}"
+    usage = f"Usage: {synopsis}\n       " if synopsis else "Usage: "
+    return f"{usage}shingi {command} -i <file>\n\n{summary}\n\n{GLOBAL_OPTIONS}"
 
 
 def usage_error(reason, argument=None):
@@ -137,6 +141,8 @@ def parse(argv):
             clash = args[0] if args else next(iter(set_by.values()))
             raise usage_error(f"--input can't be given with {clash!r}", clash)
         return operation, read_input(input_file), config
+    if command in INPUT_ONLY:
+        raise usage_error(f"{command} takes its input only from --input")
     required = [name for name in positional if not name.endswith("?")]
     if len(args) < len(required):
         raise usage_error(f"missing <{required[len(args)]}>")
