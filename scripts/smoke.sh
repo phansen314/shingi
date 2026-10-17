@@ -221,6 +221,22 @@ check "from its working folder" 0 '.result.unit.path == "HOME-1/a"' -- context
 cd "$HOME"
 check "a top-level unit" 0 '.result.ancestors == [] and .result.parent_notes == null' -- context HOME-1
 
+echo "== bind"
+tree=$tmp/worktree
+mkdir -p "$tree/src"
+check "bind a worktree" 0 '.result.unit.path == "HOME-1/a" and .result.marker == "'"$tree"'/.shingi/unit.json"' -- bind HOME-1/a "$tree"
+expect "it ignores itself" '[[ $(cat "$tree/.shingi/.gitignore") == "*" ]]'
+cd "$tree/src"
+check "where from a bound worktree" 0 '.result.path == "HOME-1/a"' -- where
+check "context from a bound worktree" 0 '.result.unit.path == "HOME-1/a"' -- context
+check "another unit is bound-elsewhere" 1 '.error.kind == "bound-elsewhere" and .error.details.unit == "HOME-1/a"' -- bind HOME-1/b "$tree"
+check "a working folder needs no marker" 1 '.error.kind == "inside-root"' -- bind HOME-1/a "$HOME/shingi-root/HOME-1/a"
+check "unbind from a subdirectory: no marker" 1 '.error.details.reason == "no-marker"' -- unbind
+cd "$tree"
+check "unbind" 0 '.result.removed | length == 3' -- unbind
+check "and it's gone" 1 '.error.details.reason == "outside-root"' -- where
+cd "$HOME"
+
 echo "== list"
 check "every unit, in path order" 0 '[.result.units[].path] == ["HOME-1", "HOME-1/a", "HOME-1/b", "HOME-2"] and .result.root == null' -- list
 check "states" 0 '[.result.units[].state] == ["started", "not-started", "not-started", "not-started"]' -- list

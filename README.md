@@ -21,6 +21,7 @@ Nothing needs setting up. The tree is always in the same two places, and the fir
 
 - **`~/shingi-root`:** each unit's working folder, with its `uow.json`, its `uow.md`, and whatever else you keep there. To keep the tree somewhere else, make `~/shingi-root` a symlink to it first.
 - **`/shingi` in koan:** each unit's tasks.
+- **`.shingi/` in a worktree:** its marker, written by `shingi bind <unit> <worktree>`, so `shingi where` and `shingi context` find the unit from anywhere in the worktree. It holds a `.gitignore` that makes git ignore it, and goes when the worktree does.
 
 ### Kinds
 
@@ -89,7 +90,7 @@ claude plugin marketplace add phansen314/shingi
 claude plugin install shingi@shingi
 ```
 
-Then, from a clone of this repo, add the permission rules, which let `where`, `context`, `list`, `kinds`, and `version` run without a prompt while `create`, `adopt`, `create-batch`, and `delete`, which change things, still ask:
+Then, from a clone of this repo, add the permission rules, which let `where`, `context`, `list`, `kinds`, and `version` run without a prompt while `create`, `adopt`, `create-batch`, `delete`, `bind`, and `unbind`, which change things, still ask:
 
 ```sh
 scripts/install.sh               # every agent whose CLI is on PATH
@@ -107,7 +108,7 @@ Claude Code, in `~/.claude/settings.json`:
 {
   "permissions": {
     "allow": ["Bash(shingi where:*)", "Bash(shingi context:*)", "Bash(shingi list:*)", "Bash(shingi kinds:*)", "Bash(shingi version:*)", "Bash(jq:*)"],
-    "ask": ["Bash(shingi create:*)", "Bash(shingi adopt:*)", "Bash(shingi create-batch:*)", "Bash(shingi delete:*)"]
+    "ask": ["Bash(shingi create:*)", "Bash(shingi adopt:*)", "Bash(shingi create-batch:*)", "Bash(shingi delete:*)", "Bash(shingi bind:*)", "Bash(shingi unbind:*)"]
   }
 }
 ```
@@ -127,7 +128,9 @@ OpenCode, in `~/.config/opencode/opencode.json` (the script leaves an `opencode.
       "shingi create*": "ask",
       "shingi adopt*": "ask",
       "shingi create-batch*": "ask",
-      "shingi delete*": "ask"
+      "shingi delete*": "ask",
+      "shingi bind*": "ask",
+      "shingi unbind*": "ask"
     }
   }
 }

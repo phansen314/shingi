@@ -19,6 +19,7 @@ Let a user run their own commands when shingi changes the tree, so what a kind, 
 - **Guarding against loops.** A hook that runs `shingi create`, whose hook runs `shingi create` again, loops until something fails. Keeping hooks from that is the user's.
 - **Serializing hooks across commands.** Two shingi commands run at the same time run their hooks at the same time. A hook that can't share what it touches with another copy of itself takes its own lock.
 - **Sandboxing.** A hook runs with the user's permissions, as anything else they run.
+- **Hooks for markers.** [`bind`](operations.md#bind) and [`unbind`](operations.md#unbind) change a [marker](design-spec.md#markers) in a worktree, not the tree: they fire no event and never read the hooks file. What a hook would do after a `bind` is done by the setup task that ran it.
 
 ## Terms
 
@@ -31,7 +32,7 @@ Let a user run their own commands when shingi changes the tree, so what a kind, 
 
 ## Events
 
-A command that succeeds fires one event, named after it, once, however much it changed. A command that fails fires none, even one that made something before failing (a `create` or `adopt` whose error carries `partial`, a `create-batch` whose `partial` names units that exist, a `delete` that removed the tasks and not the manifest): its error says what it made, and whoever handles the error deals with it. Nor does a `create`, `adopt`, or `create-batch` that fails reading the new units back, after the manifests are written: the units exist with their hooks not run, and they are run [by hand](#by-hand). Reads never fire one.
+A command that succeeds fires one event, named after it, once, however much it changed. A command that fails fires none, even one that made something before failing (a `create` or `adopt` whose error carries `partial`, a `create-batch` whose `partial` names units that exist, a `delete` that removed the tasks and not the manifest): its error says what it made, and whoever handles the error deals with it. Nor does a `create`, `adopt`, or `create-batch` that fails reading the new units back, after the manifests are written: the units exist with their hooks not run, and they are run [by hand](#by-hand). Reads never fire one, and nor do `bind` and `unbind`, which change no unit.
 
 | Event | Fired by | `input` | `result` |
 |---|---|---|---|
@@ -92,7 +93,7 @@ Every command that fires an event reads the hooks file after the rules and befor
 2. `schema` is present and an integer (`invalid`), and one shingi supports (`unsupported-format`).
 3. Every other field, as [Fields](#fields) says, each problem reported (`invalid`), disabled hooks' fields among them. A missing required field is reported at the field that is missing (`/hooks/create/0/command`).
 
-So a broken hooks file stops `create`, `adopt`, `create-batch`, and `delete` before they change anything: a change never happens with its hooks skipped. Reads never read the file, so a broken one never hides the tree. A file that changes between this check and the hooks running is read once only, here: the hooks that run are the ones checked.
+So a broken hooks file stops `create`, `adopt`, `create-batch`, and `delete` before they change anything: a change never happens with its hooks skipped. Reads, `bind`, and `unbind` never read the file, so a broken one never hides the tree or stops a worktree being bound. A file that changes between this check and the hooks running is read once only, here: the hooks that run are the ones checked.
 
 ## The payload
 
@@ -198,7 +199,7 @@ Against the real `shingi`, with a hooks file in a temporary config directory, on
 ## In the other specs
 
 - **design-spec.md:** a summary, [Hooks](design-spec.md#hooks); the hooks file in Locations; the new kinds in Problems. The `## Log` convention a hook follows is in [The notes file](design-spec.md#the-notes-file).
-- **operations.md:** the shared rule, [Running hooks](operations.md#running-hooks); the kinds' `details`, sorting, and precedence; and the hooks' place in `create`, `adopt`, `create-batch`, and `delete`, with their Retry safety.
+- **operations.md:** the shared rule, [Running hooks](operations.md#running-hooks); the kinds' `details`, sorting, and precedence; and the hooks' place in `create`, `adopt`, `create-batch`, and `delete`, with their Retry safety; and, in [Operation kinds](operations.md#operation-kinds), that marker operations run none.
 - **cli-spec.md:** that a hook writes nothing to shingi's output, in [Output](cli-spec.md#output); what an interrupt does to one, in [Exit codes](cli-spec.md#exit-codes); that `--config` doesn't move the hooks file; and, in Not included, that nothing skips hooks for one command.
 - **The skill:** report `hook-failed` and `hook-timeout` to the user, never run the command again for one, and never write `hooks.json` unasked.
 - **README:** a Hooks section, with the file's location and the example.

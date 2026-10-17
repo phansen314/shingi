@@ -8,8 +8,10 @@ import heapq
 import json
 import os
 import posixpath
+import re
 import uuid
 from importlib.metadata import version as package_version
+from pathlib import Path
 
 from shingi import hooks, inputs, koan, rules as rules_file, units
 from shingi.envelope import OperationError
@@ -34,24 +36,28 @@ def kinds(inp, config):
 def where(inp, config):
     inputs.check("where", inp)
     rules = rules_file.load(config)
-    return units.read_unit(rules, named_unit(rules, inp))
+    path, found, _ = named_unit(rules, inp)
+    unit, warnings = units.read_unit(rules, path)
+    return unit, units.sort_warnings(found + warnings)
 
 
 def named_unit(rules, inp):
-    """The path of the unit `where` and `context` report: `unit`, or the one `cwd` is in."""
+    """The path of the unit `where` and `context` report, `unit` or the one `cwd` is in, the warnings
+    finding it gave, and the marker it was found by, or None."""
     if "cwd" in inp:
         return units.resolve_directory(rules, inp["cwd"])
     path = inp["unit"]
     units.check_path(path, "/unit")
     units.resolve(rules, path)
-    return path
+    return path, [], None
 
 
 def context(inp, config):
     inputs.check("context", inp)
     rules = rules_file.load(config)
-    path = named_unit(rules, inp)
+    path, resolving, marker = named_unit(rules, inp)
     manifest, warnings = units.check_manifest(rules, path)
+    warnings += resolving
     start = done = tasks = None
     if manifest is not None:
         kfolder = units.koan_folder(rules, path)
@@ -78,7 +84,7 @@ def context(inp, config):
         folder = units.working_folder(rules, ancestor)
         try:
             ancestor_manifest = units.read_manifest(folder)
-        except units.UnusableManifest:
+        except units.Unusable:
             ancestor_manifest = None
         ancestors.append({
             "path": ancestor,
@@ -92,6 +98,7 @@ def context(inp, config):
         "notes": units.read_notes(units.working_folder(rules, path)),
         "parent_notes": None if parent is None else units.read_notes(units.working_folder(rules, parent)),
         "tasks": tasks,
+        "marker": marker,
     }, units.sort_warnings(warnings)
 
 
@@ -194,6 +201,100 @@ def delete(inp, config):
     warnings = units.sort_warnings(warnings)
     warnings = units.sort_warnings(warnings + hooks.run(loaded, "delete", inp, result, warnings, unit=path))
     return result, warnings
+
+
+def bind(inp, config):
+    """Bind a folder outside the working root to a unit: write its .shingi/, the .gitignore, then
+    the marker. No lock and no hooks (see operations.md, bind)."""
+    inputs.check("bind", inp)
+    rules = rules_file.load(config)
+    path = inp["unit"]
+    units.check_path(path, "/unit")
+    try:
+        units.resolve(rules, path)
+    except OperationError as error:
+        error.details["cwd"] = inp["dir"]
+        raise
+    unit_folder = units.working_folder(rules, path)
+    try:
+        unit_id = units.read_manifest(unit_folder)["id"]
+    except units.Unusable as exc:
+        raise OperationError(
+            "unsupported-manifest", f"{path}: {units.MANIFEST} is {exc.reason}, so there is no id to bind",
+            {"unit": path, "path": str(unit_folder / units.MANIFEST), "reason": exc.reason},
+        )
+    folder = Path(inp["dir"]).resolve()
+    if not folder.is_dir():
+        raise OperationError("not-found", f"there is no folder {folder} to bind", {
+            "unit": path, "missing": None, "cwd": inp["dir"], "reason": "no-folder", "marker": None,
+        })
+    if units.in_root(rules, folder):
+        raise OperationError("inside-root", f"{folder} is in the working root, which needs no marker", {
+            "dir": str(folder), "root": str(rules.working_root),
+        })
+    marker_dir = folder / units.MARKER_DIR
+    target = marker_dir / units.MARKER
+    if not inp.get("replace") and os.path.lexists(target):
+        try:
+            held = units.read_marker(folder)
+        except units.Unusable:
+            held = None
+        if held is not None and held["dir"] == str(folder) and held["id"] != unit_id:
+            raise OperationError(
+                "bound-elsewhere", f"{folder} is bound to {held['path']}; give --replace to bind it to {path}",
+                {"marker": str(target), "unit": held["path"], "id": held["id"]},
+            )
+    try:
+        marker_dir.mkdir(exist_ok=True)
+    except OSError as exc:
+        raise io_error(exc, marker_dir)
+    replace_file(marker_dir, units.IGNORE, "*\n")
+    record = {"schema": 1, "id": unit_id, "path": path, "dir": str(folder)}
+    replace_file(marker_dir, units.MARKER, json.dumps(record, indent=2) + "\n")
+    unit, warnings = units.read_unit(rules, path)
+    return {"unit": unit, "marker": str(target)}, warnings
+
+
+def unbind(inp, config):
+    """Remove a folder's marker: unit.json, any temp files a bind left, .gitignore, then .shingi."""
+    inputs.check("unbind", inp)
+    rules_file.load(config)
+    folder = Path(inp["dir"]).resolve()
+    marker_dir = folder / units.MARKER_DIR
+    if not marker_dir.is_dir() or marker_dir.is_symlink():
+        raise OperationError("not-found", f"{folder} holds no {units.MARKER_DIR}", {
+            "unit": None, "missing": None, "cwd": inp["dir"], "reason": "no-marker", "marker": None,
+        })
+    try:
+        temps = sorted(
+            (name for name in os.listdir(marker_dir) if is_temp(name)), key=lambda name: name.encode()
+        )
+    except OSError as exc:
+        raise io_error(exc, marker_dir)
+    removed = []
+    for name in [units.MARKER, *temps, units.IGNORE]:
+        file = marker_dir / name
+        try:
+            file.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise io_error(exc, file)
+        removed.append(str(file))
+    try:
+        marker_dir.rmdir()
+    except OSError as exc:
+        raise io_error(exc, marker_dir)
+    removed.append(str(marker_dir))
+    return {"dir": str(folder), "removed": removed}, []
+
+
+def is_temp(name):
+    """Whether `name` is a temp file bind writes in .shingi, as temp_name names them."""
+    return any(
+        re.fullmatch(re.escape(temp_prefix(file)) + r"[0-9a-f]{32}\.tmp", name)
+        for file in (units.MARKER, units.IGNORE)
+    )
 
 
 def make_unit(inp, config, adopting):
@@ -697,7 +798,7 @@ def check_entry(folder, path, adopting, at=None, listings=None):
         raise OperationError(
             "not-found",
             f"there is no folder {path} to adopt",
-            {"unit": path, "missing": path, "cwd": None, "reason": "no-folder"},
+            {"unit": path, "missing": path, "cwd": None, "reason": "no-folder", "marker": None},
         )
 
 
@@ -715,17 +816,50 @@ def unit_exists(path, manifest, at=None):
     return OperationError("unit-exists", f"{path} already exists", {**(at or {}), "manifest": str(manifest)})
 
 
+def temp_prefix(name):
+    """What the temp files `name` is written through start with: .<name>., or for a name that is
+    hidden already, <name>."""
+    return f"{'' if name.startswith('.') else '.'}{name}."
+
+
+def temp_name(name):
+    """A fresh hidden temp file to write `name` through: its temp_prefix, a random part, then .tmp."""
+    return f"{temp_prefix(name)}{uuid.uuid4().hex}.tmp"
+
+
+def write_temp(temp, text):
+    """Write `text` to the new file `temp`, flushed to disk."""
+    with open(temp, "x", encoding="utf-8") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def replace_file(folder, name, text):
+    """Write `name` in `folder` whole: a hidden temp file, flushed, then renamed over it. A temp file
+    that can't be removed after a failure is left: it is hidden."""
+    temp = folder / temp_name(name)
+    writing = temp
+    try:
+        write_temp(temp, text)
+        writing = folder / name
+        os.replace(temp, folder / name)
+    except OSError as exc:
+        try:
+            temp.unlink()
+        except OSError:
+            pass
+        raise io_error(exc, writing)
+
+
 def write_manifest(path, folder, manifest, at=None):
     """Write uow.json once: a hidden temp file, flushed, then hard-linked into place. A temp file
     that can't be removed is left: it is hidden."""
-    temp = folder / f".{units.MANIFEST}.{uuid.uuid4().hex}.tmp"
+    temp = folder / temp_name(units.MANIFEST)
     target = folder / units.MANIFEST
     writing = temp
     try:
-        with open(temp, "x", encoding="utf-8") as f:
-            f.write(json.dumps(manifest, indent=2) + "\n")
-            f.flush()
-            os.fsync(f.fileno())
+        write_temp(temp, json.dumps(manifest, indent=2) + "\n")
         writing = target
         os.link(temp, target)
     except FileExistsError:

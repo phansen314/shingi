@@ -15,7 +15,8 @@ EXIT_UNKNOWN = 3
 
 # Each command: its operation, its positional arguments' fields, and its options' fields.
 # A field ending in "@file" is read from the file the option names ("-" is stdin); one ending in
-# "@list" is a comma-separated list, and its option may be repeated.
+# "@list" is a comma-separated list, and its option may be repeated; one ending in "@flag" takes no
+# value, and sets its field true.
 COMMANDS = {
     "version": (operations.version, [], {}),
     "kinds": (operations.kinds, [], {}),
@@ -30,6 +31,8 @@ COMMANDS = {
     "adopt": (operations.adopt, ["path", "kind"], {"--title": "title"}),
     "create-batch": (operations.create_batch, [], {}),
     "delete": (operations.delete, ["unit"], {}),
+    "bind": (operations.bind, ["unit", "dir?"], {"--replace": "replace@flag"}),
+    "unbind": (operations.unbind, ["dir?"], {}),
 }
 INPUT_ONLY = {"create-batch"}  # commands whose input comes only from --input
 
@@ -48,6 +51,8 @@ HELP = {
     "adopt": ("shingi adopt <path> <kind> [--title <text>]", "Make an existing folder a unit, leaving what is in it."),
     "create-batch": (None, "Make several units in one call, from {\"units\": [...]}, each entry a create input."),
     "delete": ("shingi delete <unit>", "Make a unit a plain folder again: remove its tasks and manifest, and leave its files."),
+    "bind": ("shingi bind <unit> [<dir>] [--replace]", "Bind a folder outside the working root, such as a worktree, to a unit."),
+    "unbind": ("shingi unbind [<dir>]", "Remove a folder's marker, so it no longer names a unit."),
 }
 
 GLOBAL_OPTIONS = """\
@@ -108,7 +113,13 @@ def parse(argv):
             name, eq, value = "-i", "=", token[2:]
         else:
             name, eq, value = token.partition("=")
-        if name in options:
+        if name in options and options[name] and options[name].endswith("@flag"):
+            if eq:
+                raise usage_error(f"{name} takes no value", token)
+            field = options[name].partition("@")[0]
+            set_by.setdefault(field, name)
+            inp[field] = True
+        elif name in options:
             if not eq:
                 value = next(tokens, None)
                 if value is None:
@@ -150,6 +161,13 @@ def parse(argv):
         inp[field] = read_text(file)
     if command in ("where", "context") and "unit" not in inp:
         inp["cwd"] = current_directory()
+    if command in ("bind", "unbind"):
+        # A relative folder is made absolute against the current directory, symlinks unresolved.
+        given = inp.get("dir")
+        if given is None:
+            inp["dir"] = current_directory()
+        elif not os.path.isabs(given):
+            inp["dir"] = os.path.join(current_directory(), given)
     return operation, inp, config
 
 

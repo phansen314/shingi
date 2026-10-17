@@ -19,6 +19,8 @@ FIELDS = {
     "adopt": {"path": True, "kind": True, "title": False},
     "create-batch": {"units": True},
     "delete": {"unit": True},
+    "bind": {"unit": True, "dir": True, "replace": False},
+    "unbind": {"dir": True},
 }
 
 MAX_BATCH = 500  # koan's create-batch takes 1000 tasks, and each unit needs two
@@ -44,7 +46,7 @@ def string_problems(operation, field, value):
         return [{"field": field, "reason": "must be a string"}]
     if not utf8(value):
         return [{"field": field, "reason": "not valid UTF-8"}]
-    if operation in ("create", "adopt") and "\0" in value:
+    if operation in ("create", "adopt", "bind", "unbind") and "\0" in value:
         return [{"field": field, "reason": "holds a NUL"}]
     return []
 
@@ -89,6 +91,9 @@ def input_problems(operation, inp, prefix=""):
             problems += after_problems(value, prefix)
         elif name == "units":
             problems += units_problems(value)
+        elif name == "replace":
+            if not isinstance(value, bool):
+                problems.append({"field": field, "reason": "must be a boolean"})
         else:
             problems += string_problems(operation, field, value)
     for name, required in fields.items():
@@ -104,9 +109,10 @@ def input_problems(operation, inp, prefix=""):
     if operation in ("where", "context"):
         if ("unit" in inp) == ("cwd" in inp):
             problems.append({"field": "", "reason": "exactly one of unit and cwd is required"})
-        cwd = inp.get("cwd")
-        if isinstance(cwd, str) and not os.path.isabs(cwd):
-            problems.append({"field": "/cwd", "reason": "must be absolute"})
+    for name in ("cwd", "dir"):
+        value = inp.get(name) if operation in ("where", "context", "bind", "unbind") else None
+        if isinstance(value, str) and not os.path.isabs(value):
+            problems.append({"field": f"/{name}", "reason": "must be absolute"})
     return problems
 
 
