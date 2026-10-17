@@ -103,7 +103,7 @@ What every hook reads on stdin, one line of JSON in the envelope's encoding, end
 {
   "schema": 1,
   "tool": "shingi",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "event": "create",
   "input": { "path": "HOME-12345/foo", "kind": "branch", "title": "foo: retries" },
   "result": { "unit": { "path": "HOME-12345/foo", "id": "3f6c2a9e-…", "kind": "branch", "…": "…" } },
