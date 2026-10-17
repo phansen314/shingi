@@ -294,6 +294,50 @@ class BatchWarningTest(BatchTestCase):
         self.assertEqual(self.blocked_by(parent["done"]), [parent["start"]["id"]])
 
 
+class BatchHooksTest(BatchTestCase):
+    """create-batch fires its own event, once for the batch."""
+
+    def test_its_hook_is_given_the_batch(self):
+        batch, create = self.recorder(), self.recorder()
+        self.write_hooks(**{"create-batch": [{"command": batch[0]}], "create": [{"command": create[0]}]})
+        entries = [{"path": "A/b", "kind": "branch", "title": "B"}, {"path": "A", "kind": "group"}]
+        status, out = self.batch(*entries)
+        self.assertEqual(status, 0, out)
+        payload = json.loads(batch[1].read_text())
+        self.assertEqual(payload["event"], "create-batch")
+        self.assertEqual(payload["input"], {"units": entries})
+        self.assertEqual(payload["result"], out["result"])
+        self.assertEqual(payload["warnings"], [])
+        self.assertFalse(create[1].exists())  # never create's, for each unit
+
+    def test_an_empty_batch_fires_it_with_no_units(self):
+        command, out = self.recorder()
+        self.write_hooks(**{"create-batch": [{"command": command}]})
+        self.made()
+        self.assertEqual(json.loads(out.read_text())["result"], {"units": []})
+
+    def test_a_failing_hook_is_a_warning_about_no_unit(self):
+        self.write_hooks(**{"create-batch": [{"command": "exit 3"}]})
+        units, warnings = self.made({"path": "A", "kind": "group"})
+        self.assertEqual(list(units), ["A"])
+        self.assertEqual([(w["kind"], w["unit"], w["details"]["exit"]) for w in warnings], [("hook-failed", None, 3)])
+
+    def test_a_broken_hooks_file_comes_before_every_entrys_checks(self):
+        self.write_hooks(**{"create-batch": [{"command": ""}]})
+        error = self.refused({"path": "A", "kind": "group"}, {"path": "A", "kind": "group"})
+        self.assertEqual(error["kind"], "invalid-hooks")
+        self.assertFalse((self.working / "A").exists())
+
+    def test_a_batch_that_fails_part_way_fires_nothing(self):
+        command, out = self.recorder()
+        self.write_hooks(**{"create-batch": [{"command": command}]})
+        self.create("HOME-1", "group")
+        self.fake_koan(block="error")
+        error = self.refused({"path": "HOME-1/a", "kind": "group"})
+        self.assertIn("partial", error)
+        self.assertFalse(out.exists())
+
+
 class BatchPartialTest(BatchTestCase):
     """A batch that fails part-way tells what it made, and which units exist."""
 

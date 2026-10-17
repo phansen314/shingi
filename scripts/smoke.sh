@@ -312,9 +312,15 @@ cat >"$config/hooks.json" <<'EOF'
 { "schema": 1, "hooks": { "create": [{ "command": "echo nope >&2; exit 3", "description": "smoke" }] } }
 EOF
 check "a failing hook is a warning, and create succeeds" 0 '.result.unit.path == "HOME-8" and [.warnings[] | .kind, .details.exit, .details.stderr] == ["hook-failed", 3, "nope\n"]' -- create HOME-8 group
+cat >"$config/hooks.json" <<'EOF'
+{ "schema": 1, "hooks": { "create-batch": [{ "command": "exit 4" }] } }
+EOF
+check "a batch fires its own event, once" 0 '[.result.units[].path] == ["HOME-8/a", "HOME-8/b"] and [.warnings[] | .kind, .unit, .details.event] == ["hook-failed", null, "create-batch"]' \
+	-- create-batch -i - <<<'{"units": [{"path": "HOME-8/a", "kind": "group"}, {"path": "HOME-8/b", "kind": "group"}]}'
 echo '{' >"$config/hooks.json"
 check "a broken hooks file stops create" 1 '.error.kind == "invalid-hooks"' -- create HOME-9 group
 expect "and made nothing" '[[ ! -e $HOME/shingi-root/HOME-9 ]]'
+check "and create-batch" 1 '.error.kind == "invalid-hooks"' -- create-batch -i - <<<'{"units": [{"path": "HOME-9", "kind": "group"}]}'
 check "reads ignore it" 0 '.ok' -- where HOME-8
 rm "$config/hooks.json"
 

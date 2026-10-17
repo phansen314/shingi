@@ -13,7 +13,7 @@ from pathlib import Path
 from shingi import envelope, rules, units
 from shingi.envelope import OperationError
 
-EVENTS = ("create", "adopt", "delete")
+EVENTS = ("create", "adopt", "create-batch", "delete")
 HOOK = {"command", "timeout", "description", "disabled"}
 DEFAULT_TIMEOUT = 10
 STDERR_TAIL = 2048

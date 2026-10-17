@@ -423,11 +423,18 @@ def create_batch(inp, config):
     """Make several units in one call (operations.md, create-batch)."""
     inputs.check("create-batch", inp)
     rules = rules_file.load(config)
-    if not inp["units"]:
-        return {"units": []}, []
-    check_duplicates(inp["units"])
-    numbered = sorted(enumerate(inp["units"]), key=lambda item: units.path_key(item[1]["path"]))
-    batch = {entry["path"] for entry in inp["units"]}
+    loaded = hooks.load()
+    result, warnings = make_batch(rules, inp["units"]) if inp["units"] else ({"units": []}, [])
+    warnings = units.sort_warnings(warnings + hooks.run(loaded, "create-batch", inp, result, warnings, unit=None))
+    return result, warnings
+
+
+def make_batch(rules, given):
+    """create-batch's steps 1.2 to 6, for the units `given`, at least one: the result and its
+    warnings, before the hooks run."""
+    check_duplicates(given)
+    numbered = sorted(enumerate(given), key=lambda item: units.path_key(item[1]["path"]))
+    batch = {entry["path"] for entry in given}
     for index, entry in numbered:
         check_unit(rules, entry, f"/units/{index}", batch=batch)
     # From here a unit is known by its position n in path order.
