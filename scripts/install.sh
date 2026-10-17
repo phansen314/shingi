@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Sets shingi up for Claude Code, OpenCode, or both: the permission rules that
 # let the agent run shingi's read commands (where, context, list, kinds, version) and jq
-# without prompting, while create, adopt, and delete, which change things, still ask;
+# without prompting, while create, adopt, create-batch, and delete, which change things, still ask;
 # and, for OpenCode, the skill. Claude Code gets the skill from the shingi
 # plugin; see the README.
 #
@@ -29,7 +29,7 @@ skill_src=$repo/claude/skills/shingi
 claude_dir=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 claude_settings=$claude_dir/settings.json
 claude_allow='["Bash(shingi where:*)", "Bash(shingi context:*)", "Bash(shingi list:*)", "Bash(shingi kinds:*)", "Bash(shingi version:*)", "Bash(jq:*)"]'
-claude_ask='["Bash(shingi create:*)", "Bash(shingi adopt:*)", "Bash(shingi delete:*)"]'
+claude_ask='["Bash(shingi create:*)", "Bash(shingi adopt:*)", "Bash(shingi create-batch:*)", "Bash(shingi delete:*)"]'
 
 oc_dir=${XDG_CONFIG_HOME:-$HOME/.config}/opencode
 oc_json=$oc_dir/opencode.json
@@ -45,6 +45,7 @@ oc_rules='{
   "jq *": "allow",
   "shingi create*": "ask",
   "shingi adopt*": "ask",
+  "shingi create-batch*": "ask",
   "shingi delete*": "ask"
 }'
 

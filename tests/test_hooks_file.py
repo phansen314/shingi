@@ -201,6 +201,11 @@ class HooksFileTest(ShingiTestCase):
         status, out = self.shingi("delete", "HOME-1")
         self.assertEqual((status, out["warnings"]), (0, []))
 
+    def test_create_batch_behaves_as_before_with_no_hooks_file(self):
+        batch = {"units": [{"path": "HOME-1", "kind": "group"}]}
+        status, out = self.shingi("create-batch", "-i", "-", stdin=json.dumps(batch).encode())
+        self.assertEqual((status, out["warnings"]), (0, []))
+
     def test_a_broken_hooks_file_stops_adopt_and_delete_before_any_change(self):
         (self.working / "HOME-1").mkdir()
         self.shingi("create", "HOME-2", "group")

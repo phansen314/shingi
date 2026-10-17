@@ -26,7 +26,8 @@ class InvalidNameTest(ShingiTestCase):
         ):
             with self.subTest(path):
                 self.assertEqual(self.details("where", path),
-                                 {"path": path, "index": index, "segment": segment, "reason": reason})
+                                 {"field": "/unit", "path": path, "index": index, "segment": segment,
+                                  "reason": reason})
 
     def test_create_and_adopt_limit_the_whole_path(self):
         path = "x" * 64 + "/" + "x" * 64 + "/" + "x" * 64  # 194 characters
@@ -34,7 +35,8 @@ class InvalidNameTest(ShingiTestCase):
         for command in ("create", "adopt"):
             with self.subTest(command):
                 self.assertEqual(self.details(command, path, "group"),
-                                 {"path": path, "index": None, "segment": None, "reason": "path-length"})
+                                 {"field": "/path", "path": path, "index": None, "segment": None,
+                                  "reason": "path-length"})
 
     def test_193_characters_is_fine(self):
         path = "x" * 64 + "/" + "x" * 64 + "/" + "x" * 63

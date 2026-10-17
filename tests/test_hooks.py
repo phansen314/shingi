@@ -546,12 +546,7 @@ class ByHandTest(ShingiTestCase):
                 self.assertEqual(by_hand[field], sent[field], field)
 
     def test_the_example_hook_copies_the_template_once(self):
-        example = self.hook(
-            "unit=$(jq -c .result.unit)\n"
-            '[ "$(printf \'%s\' "$unit" | jq -r .kind)" = branch ] || exit 0\n'
-            "plan=$(printf '%s' \"$unit\" | jq -r .working_folder)/plan.md\n"
-            '[ -e "$plan" ] || cp ~/templates/branch-plan.md "$plan"\n'
-        )
+        example = self.example_hook()
         (self.tmp / "templates").mkdir()
         (self.tmp / "templates" / "branch-plan.md").write_text("template\n")
         self.shingi("create", "HOME-1", "group")
@@ -564,6 +559,30 @@ class ByHandTest(ShingiTestCase):
         plan.write_text("edited\n")
         subprocess.run(["sh", "-c", example], input=self.by_hand("HOME-1/b"), env=self.env, check=True)
         self.assertEqual(plan.read_text(), "edited\n")
+
+    def test_the_example_hook_serves_a_batch_too(self):
+        example = self.example_hook()
+        self.write_hooks(**{"create-batch": [{"command": example}]})
+        (self.tmp / "templates").mkdir()
+        (self.tmp / "templates" / "branch-plan.md").write_text("template\n")
+        batch = {"units": [{"path": "HOME-1", "kind": "group"}] + [
+            {"path": f"HOME-1/{name}", "kind": "branch"} for name in ("a", "b")
+        ]}
+        status, out = self.shingi("create-batch", "-i", "-", stdin=json.dumps(batch).encode())
+        self.assertEqual((status, out["warnings"]), (0, []), out)
+        for name in ("a", "b"):
+            self.assertEqual((self.working / "HOME-1" / name / "plan.md").read_text(), "template\n")
+        self.assertFalse((self.working / "HOME-1" / "plan.md").exists())
+
+    def example_hook(self):
+        """The hooks spec's example, as written there."""
+        return self.hook(
+            "jq -c '.result.unit // .result.units[]' | while read -r unit; do\n"
+            '\t[ "$(printf \'%s\' "$unit" | jq -r .kind)" = branch ] || continue\n'
+            "\tplan=$(printf '%s' \"$unit\" | jq -r .working_folder)/plan.md\n"
+            '\t[ -e "$plan" ] || cp ~/templates/branch-plan.md "$plan"\n'
+            "done\n"
+        )
 
 
 if __name__ == "__main__":

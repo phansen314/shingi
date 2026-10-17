@@ -20,7 +20,7 @@ The global rules follow koan's CLI spec almost word for word, so one habit cover
   - Exit `3`: only its notice.
 
   The line is human-readable and not part of the contract. Control characters in it are escaped, so it stays one line. Callers read the envelope. A failure to write it is ignored and never changes the exit status.
-- **Nothing from a hook.** A [hook](hooks-spec.md) that `create`, `adopt`, or `delete` runs writes to neither stream of shingi's: its stdout is discarded, and its stderr is kept only for the `hook-failed` or `hook-timeout` warning. Hooks run before the envelope is written, so a command with slow hooks is slow to print.
+- **Nothing from a hook.** A [hook](hooks-spec.md) that `create`, `adopt`, `create-batch`, or `delete` runs writes to neither stream of shingi's: its stdout is discarded, and its stderr is kept only for the `hook-failed` or `hook-timeout` warning. Hooks run before the envelope is written, so a command with slow hooks is slow to print.
 - **No traceback, ever.** An unexpected exception is an `internal` envelope, exit `1`; an interrupt is a [crash](#exit-codes), with no envelope and no traceback.
 - **Exception:** `--help` writes plain-text usage to stdout. It is not an operation.
 
@@ -45,9 +45,9 @@ jq -n --arg d "$PWD" '{cwd: $d}' | shingi where -i -
 
 The command line is parsed in the GNU style, with koan's rules:
 
-- **Command names are operation names:** `where`, `context`, `list`, `kinds`, `version`, `create`, `adopt`, `delete`. There are no aliases.
+- **Command names are operation names:** `where`, `context`, `list`, `kinds`, `version`, `create`, `adopt`, `create-batch`, `delete`. There are no aliases.
 - **Option names are field names,** in kebab-case. `--input`, `--notes-file`, `--config`, and `--help` are the exceptions: none sets a field under its own name.
-- **Arguments are for required subjects,** with two departures from koan. `where`, `context`, and `list` take their unit as an optional argument, since a unit is a path and no option could be confused with one; and `create` and `adopt` take two, its path and its kind, in that order. Everything else is an option, so a bare token always has one meaning.
+- **Arguments are for required subjects,** with two departures from koan. `where`, `context`, and `list` take their unit as an optional argument, since a unit is a path and no option could be confused with one; and `create` and `adopt` take two, its path and its kind, in that order. Everything else is an option, so a bare token always has one meaning. `create-batch` takes none, and no option that sets a field: its input is `--input`'s, as koan's `create-batch`'s is.
 - **Paths are exact.** A unit path is taken exactly as given: never completed, normalized, case-folded, or derived from the working directory (but see [`where`](#where)). `HOME-12345/` and `/HOME-12345` reach the operation as given, which rejects them as `invalid-name`.
 - **Options and arguments follow the command,** in any order: `shingi <command> [options and arguments]`. `--help` may also be given with no command.
 - **`--`** ends options; everything after it is an argument. A lone `-` is an ordinary argument.
@@ -58,6 +58,7 @@ The command line is parsed in the GNU style, with koan's rules:
 - **Encoding.** Every value is UTF-8; one that is not is `invalid-input` at its field, reported in the operation's own `invalid-input` together with any other problems in the input.
 - **The CLI rejects only what it cannot build:** two different options that set one field (`--notes` with `--notes-file`), or `--input` with a field argument or option. Everything else reaches the operation.
 - **A repeated option** that takes one value: the last one wins.
+- **Lists** follow koan: comma-separated, and the option may be repeated, the values joined in the order given. `--after a,b` and `--after a --after b` are the same. `create`'s `--after` is the only one. Every piece between commas is an entry, taken as it is: an empty one (`--after ''`, `--after a,,b`) reaches the operation, which rejects it as `invalid-name`.
 - **Bare `shingi`**, with no command, is a usage error.
 - **`--help`** (or `-h`) writes help text and exits `0`, running no operation. Help text is for people and not part of the contract.
 - **No `help`, `completion`, or `init` command.** Each is a usage error, like any unknown command.
@@ -104,7 +105,7 @@ A usage error is a problem with the command line itself: an unknown command or o
 | any other | Outcome unknown: shingi was terminated before it finished (e.g. `128+n` for signal `n`). Handle like `3`. |
 
 - **One code for all operation errors.** Callers branch on the envelope's `kind`, not the exit code.
-- **Outcome unknown.** On `3` or any status outside `0`–`2`, the operation may already have taken effect. The caller follows the operation's **Retry safety** for a crash. For a read, rerunning is always safe; for [`create`](operations.md#create) and [`adopt`](operations.md#adopt), it is not, as it stands.
+- **Outcome unknown.** On `3` or any status outside `0`–`2`, the operation may already have taken effect. The caller follows the operation's **Retry safety** for a crash. For a read, rerunning is always safe; for [`create`](operations.md#create), [`adopt`](operations.md#adopt), and [`create-batch`](operations.md#create-batch), it is not, as it stands.
 - **Unwritable stdout.** When stdout cannot be written (a closed pipe, a full disk behind a redirect), shingi exits `3` with a notice on stderr. This applies even when nothing was run, e.g. a usage error with stdout closed.
 - **Interrupts are crashes.** An interrupt or termination signal (Ctrl-C, `kill`, a harness's timeout) ends shingi as the signal's default would: no envelope, no traceback, exit `128+n`. A koan call it was waiting on is koan's to finish or not. A [hook](hooks-spec.md#running-a-hook) it was running is not left so: on `SIGINT`, `SIGTERM`, or `SIGHUP`, shingi first kills the hook's process group, then dies of the same signal, and the hooks after it don't run. The command's change is already made. A shingi killed by `SIGKILL` kills nothing, and its hook runs on.
 
@@ -284,7 +285,7 @@ shingi version | jq -r .result.version
 
 Make one unit: its start and done tasks in koan, its working folder, `uow.md`, and manifest. Runs [`create`](operations.md#create).
 
-**Synopsis:** `shingi create <path> <kind> [--title <text>] [--notes <text> | --notes-file <file>]`, or `shingi create -i <file>`.
+**Synopsis:** `shingi create <path> <kind> [--title <text>] [--notes <text> | --notes-file <file>] [--after <paths>]`, or `shingi create -i <file>`.
 
 **Operation:** [`create`](operations.md#create).
 
@@ -302,6 +303,7 @@ Make one unit: its start and done tasks in koan, its working folder, `uow.md`, a
 | `--title <text>` | `/title` | The unit's name. One line. |
 | `--notes <text>` | `/notes` | No notes. Mutually exclusive with `--notes-file`. |
 | `--notes-file <file>` | `/notes` | No notes. Reads the notes from `<file>`; `-` is stdin. Mutually exclusive with `--notes`. |
+| `--after <paths>` | `/after` | None. Comma list of unit paths, exact; may be repeated. The new unit's start task waits on each one's done task. |
 
 **Input:** `--notes-file` reads the file's contents exactly as they are, trailing newline included, into `notes`; `create` adds a final newline only when they lack one. It accepts any readable path, as [`--input`](#input) does. Since `--input` excludes field options, `--notes-file -` and `--input -` never both read stdin.
 
@@ -325,6 +327,8 @@ shingi create HOME-12345/foo-split group --title 'foo: seven stacked MRs'
 shingi create HOME-12345/foo-split/1-schema branch --title 'foo: schema changes' | jq -r .result.unit.start.id
 printf 'Story: retry failed payments.\n' | shingi create HOME-12345 group --notes-file -
 shingi create HOME-12345/research group 2>/dev/null | jq -e .ok >/dev/null || echo 'create failed'
+shingi create HOME-12345/implementation group --after HOME-12345/research
+shingi create HOME-12345/review group --after HOME-12345/implementation,HOME-99/api-change
 ```
 
 ### adopt
@@ -359,6 +363,43 @@ Make an existing folder a unit, leaving everything in it as it was. Runs [`adopt
 ```sh
 shingi adopt HOME-12345 group                   # ~/shingi-root/HOME-12345 already holds the story's notes
 shingi adopt HOME-12345/spike branch --title 'foo: spike' | jq -r .result.unit.title
+```
+
+### create-batch
+
+Make several units in one call, each entry a `create` input: a whole story, or more of one. Runs [`create-batch`](operations.md#create-batch).
+
+**Synopsis:** `shingi create-batch -i <file>`.
+
+**Operation:** [`create-batch`](operations.md#create-batch).
+
+**Arguments:** none.
+
+**Options:** none.
+
+**Input:** only ever `--input`: `{ "units": [ … ] }`, each entry `{ "path", "kind", "title"?, "notes"?, "after"? }`. There is no `--notes-file`: an entry's notes are in its `notes`.
+
+**Output:** Passthrough: `{ "units" }`, the new units in path order.
+
+**Errors:**
+
+| Kind | When |
+|---|---|
+| `usage` | `--input` is not given. |
+
+**Examples:**
+
+```sh
+shingi create-batch -i story.json | jq -r '.result.units[].path'
+jq -n '{units: [
+  {path: "HOME-12345", kind: "group", title: "Payment retries"},
+  {path: "HOME-12345/setup", kind: "group"},
+  {path: "HOME-12345/research", kind: "group", after: ["HOME-12345/setup"]},
+  {path: "HOME-12345/implementation", kind: "group", after: ["HOME-12345/research"]},
+  {path: "HOME-12345/implementation/1-schema", kind: "branch", title: "foo: schema changes"},
+  {path: "HOME-12345/review", kind: "group", after: ["HOME-12345/implementation"]}
+]}' | shingi create-batch -i -
+shingi create-batch -i more.json | jq '.error.partial.units'   # after a failure: the units that were made
 ```
 
 ### delete

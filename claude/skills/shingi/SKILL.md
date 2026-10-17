@@ -16,7 +16,7 @@ shingi version
 shingi kinds
 ```
 
-The tree is always in the same two places: units' working folders under `~/shingi-root`, and their tasks under the koan folder `/shingi`. Nothing needs setting up: the first `create` makes both. The kinds are `group` and `branch` unless the user has written a `shingi.toml` (in `~/.config/shingi/` on Linux, `~/Library/Application Support/shingi/` on macOS) defining their own. **Never write or change `shingi.toml` unasked**; it is the user's. So is `hooks.json`, beside it: the user's own commands, which `create`, `adopt`, and `delete` run once they have succeeded (see [Hooks](#hooks)). shingi also needs koan, set up and on `PATH`.
+The tree is always in the same two places: units' working folders under `~/shingi-root`, and their tasks under the koan folder `/shingi`. Nothing needs setting up: the first `create` makes both. The kinds are `group` and `branch` unless the user has written a `shingi.toml` (in `~/.config/shingi/` on Linux, `~/Library/Application Support/shingi/` on macOS) defining their own. **Never write or change `shingi.toml` unasked**; it is the user's. So is `hooks.json`, beside it: the user's own commands, which `create`, `adopt`, `create-batch`, and `delete` run once they have succeeded (see [Hooks](#hooks)). shingi also needs koan, set up and on `PATH`.
 
 ## Reading output
 
@@ -32,18 +32,22 @@ Branch on `.error.kind`, not the exit code. **Always tell the user about any `wa
 | 0 | Success, with or without warnings | — |
 | 1 | Operation error; see `.error.kind` | See below |
 | 2 | Usage error (bad command line) | Fix the command |
-| 3 or other | Outcome unknown (killed, stdout lost) | Reads and `delete`: rerun. `create` and `adopt`: **don't** rerun blind; see [When create fails](#when-create-or-adopt-fails). |
+| 3 or other | Outcome unknown (killed, stdout lost) | Reads and `delete`: rerun. `create`, `adopt`, and `create-batch`: **don't** rerun blind; see [When create fails](#when-create-or-adopt-fails). |
 
 Error kinds worth handling:
 
 - `not-found` — the path isn't a unit; `.error.details.missing` is the first folder on it that isn't one. From `where` with no path: `reason` `no-unit` or `outside-root` (you're not in a unit's working folder). From `adopt`: `reason` `no-folder`, there is nothing at the path to adopt.
 - `invalid-name` — a path segment breaks the name rule (below).
 - `parent-not-found` — create the parent first.
+- `after-not-found` — a unit named in `--after` isn't a unit (`.error.details.after`): create it first.
+- `after-lineage` — `--after` names the unit itself or one of its ancestors, which would never let it start. Drop that entry: a unit already waits on its ancestors' start tasks. To wait on work inside the parent, name those sibling units instead.
+- `duplicate-path` — two entries of a `create-batch` have the same path, or the same ignoring case (`.error.details.fields`).
+- `after-cycle` — a `create-batch`'s own `after`s can never all be met; `.error.details.cycle` is the units it runs through, each waiting on the next. A unit waits on everything under a unit it comes after, so `x` after `y` with `y/c` after `x` is one. Show the user the cycle and ask which `after` to drop.
 - `name-taken` — something is already at the name (`.error.details.entry`, `.type`): a folder, a file, or a name differing only in case. A folder of existing work is made a unit with `adopt`, not `create`.
 - `unit-exists` — it's already a unit: `shingi where` it.
 - `unknown-kind` — `.error.details.defined` lists the kinds there are.
 - `invalid-rules`, or `unsupported-format` whose `.error.details.path` doesn't end in `/hooks.json` — the user's rules file is wrong: `shingi.toml`, or the file `--config` named; report `.error.message` to the user.
-- `invalid-hooks`, or `unsupported-format` whose `.error.details.path` ends in `/hooks.json` — the user's hooks file is wrong, and `create`, `adopt`, and `delete` change nothing until it is fixed; report `.error.message`, and `.error.details.problems`, to the user. Don't fix it yourself unasked.
+- `invalid-hooks`, or `unsupported-format` whose `.error.details.path` ends in `/hooks.json` — the user's hooks file is wrong, and `create`, `adopt`, `create-batch`, and `delete` change nothing until it is fixed; report `.error.message`, and `.error.details.problems`, to the user. Don't fix it yourself unasked.
 - `koan-failed` — koan failed; `.error.details.error` is koan's own error. See [When create fails](#when-create-or-adopt-fails).
 - `io`, `internal` — stop and report to the user, quoting `.error.message`.
 
@@ -98,6 +102,38 @@ shingi create HOME-12345/foo-split/1-schema branch --title 'foo: schema changes'
 
 `--title` is one line (default: the name). `--notes` for a line or two, `--notes-file -` with a quoted heredoc for more. `create` makes the koan folder, the start and done tasks (linked to the parent's: the start task waits on the parent's start task, and the parent's done task waits on the new done task), the working folder, `uow.md`, and the manifest. `.result.unit` is the new unit.
 
+**Order between units: `--after`.** A unit that must wait for another is created `--after` it: its start task is blocked by that unit's done task. Give full paths, comma-separated or with the option repeated; create the units it comes after first:
+
+```sh
+shingi create HOME-12345/setup group
+shingi create HOME-12345/research group --after HOME-12345/setup
+shingi create HOME-12345/implementation group --after HOME-12345/research
+shingi create HOME-12345/review group --after HOME-12345/implementation
+```
+
+Order carries through the tree, so say it once, at the top: every unit under `implementation` waits on `research`, since a child's start task waits on its parent's; and `review` waits on every one of them, since a parent's done task waits on its children's. A stack's pieces are each `--after` the one before. `adopt` has no `--after`.
+
+**A whole tree at once: `create-batch`.** When the user has agreed to several units, make them in one call instead of one `create` each: the input is `{"units": [...]}`, each entry what `create` takes (`path`, `kind`, and optionally `title`, `notes`, `after`), given with `-i`:
+
+```sh
+shingi create-batch -i - <<'EOF' | jq -c 'if .ok then .result.units |= map({path, kind, state}) else . end'
+{"units": [
+  {"path": "HOME-12345", "kind": "group", "title": "Payment retries", "notes": "Story: retry failed card payments up to three times."},
+  {"path": "HOME-12345/setup", "kind": "group"},
+  {"path": "HOME-12345/research", "kind": "group", "after": ["HOME-12345/setup"]},
+  {"path": "HOME-12345/implementation", "kind": "group", "after": ["HOME-12345/research"]},
+  {"path": "HOME-12345/implementation/1-schema", "kind": "branch", "title": "foo: schema changes"},
+  {"path": "HOME-12345/implementation/2-model", "kind": "branch", "title": "foo: model", "after": ["HOME-12345/implementation/1-schema"]},
+  {"path": "HOME-12345/review", "kind": "group", "after": ["HOME-12345/implementation"]}
+]}
+EOF
+```
+
+- Paths are full, and the entries may be in any order. A parent, or a unit in `after`, is either in the batch or a unit already, so a batch can also add to a story that exists. At most 500 units.
+- Everything is checked before anything is made; an error about one entry says which in `.error.details.field` (`/units/3/after/0`, counting from 0).
+- **Show the user the whole batch and get a yes before running it.** It asks for permission once, for all of it.
+- `.result.units` is every new unit, in path order; shape it with `jq`, as `list`'s.
+
 **Existing work:** a folder that already holds work (drafts, notes) becomes a unit with `adopt`, which keeps everything in it, its `uow.md` included:
 
 ```sh
@@ -135,7 +171,7 @@ EOF
 koan block "$done" --blockers "$(jq -r '.result.ids | join(",")' <<<"$out")"
 ```
 
-- **Order across units** is ordinary blocking: a stack's next piece has its start task blocked by the previous piece's done task (`koan block <next start> --blockers <previous done>`); likewise for a unit that needs another's API change.
+- **Order across units** is given when the later unit is created, with `create --after` (above). Between units that both exist already, add it by hand: the later unit's start task is blocked by the earlier one's done task (`koan block <later start> --blockers <earlier done>`).
 - **Never tag your tasks `shingi`, `shingi-start`, or `shingi-done`**, and never set `extra.source` or `extra.shingi-unit` on them: those mark the start and done tasks, and anything else carrying them shows up as an `orphan-task`.
 
 ## Setting a unit up: `## Code`
@@ -214,6 +250,10 @@ The key is `shingi-path`, never `shingi-unit`: on a koan task, `shingi-unit` is 
 2. `koan delete-folder <folder>` for each of `partial.koan_folders`, innermost first;
 3. remove each of `partial.files`, `uow.md` first.
 
+**A cycle is not run again.** After `create --after` or a `create-batch`, a `koan-failed` whose `.error.details.error.kind` is `conflict` and `.rule` is `cycle` means a unit named in an `after` itself waits on the new unit's parent or another ancestor that already exists, so the new unit could never start. Undo the partial, tell the user, and don't run it again with that `after`: `.error.details.error.ids` are the tasks in the cycle, and `koan show` on them says which unit it runs through.
+
+**A `create-batch` that fails part-way may have finished some units.** Its `partial` has one more list, `units`: the units that exist. **Keep them**; everything else in `partial` belongs to the units that were not made, and `blocked` is a list, one entry for each existing parent whose done task got new blockers. Undo it in fewer calls than one per task: `koan delete-folder -r <folder>` for each of `partial.koan_folders` that isn't inside another listed, which removes the tasks in it; `koan delete <id>` for each of `partial.tasks` still there (`koan show <id>` says); then remove each of `partial.files`, last first. Then run `create-batch` again **without the entries whose paths are in `partial.units`**. Their parents, and the units they come after, exist now, so the rest link to them.
+
 Tell the user what you're undoing before you do it. A `koan-failed` with `.error.details.error` `null`, or exit 3 or a signal, means the outcome is unknown: more may have been made than `partial` lists. Run `shingi list <parent>` (or `shingi list` for a top-level path): a unit at the path means it succeeded, though its hooks may not all have run, or may have failed unseen, so tell the user; an `orphan-task` whose `.details.folder` is the path's koan folder is what it left, to delete before trying again.
 
 ## Warnings, and what to do
@@ -226,16 +266,17 @@ Tell the user what you're undoing before you do it. A `koan-failed` with `.error
 | `undefined-kind` | A unit's kind is no longer in `shingi.toml`. | Tell the user; the rules or the unit is theirs to fix. |
 | `parent-done` | The parent's done task was already done, so the new unit doesn't block it. | Tell the user: they may want to `koan reopen` the parent's done task and block it on the new one. |
 | `parent-unlinked` | The parent's start or done task wasn't found, so that link was left out. | Tell the user; the link can be added by hand with `koan block`. |
+| `after-unlinked` | The done task of a unit named in `--after` (`.details.after`) wasn't found, so the new unit doesn't wait on it. | Tell the user; the link can be added by hand with `koan block`. |
 | `koan-failed`, `koan-warning` | koan failed, or warned (`.details`); tasks may be `null` or missing. | Tell the user; check koan (`koan info`, `koan doctor`). |
 | `hook-failed`, `hook-timeout` | One of the user's hooks failed, or ran past its timeout, after the command succeeded. `.details.command`, `.details.stderr`, and `.details.exit` (`hook-failed`) or `.details.timeout` (`hook-timeout`). | Tell the user which hook and what it printed. **Never run the command again**: its change is made, and `create` would be `unit-exists`. See [Hooks](#hooks). |
 
 ## Hooks
 
-The user may list commands of their own in `hooks.json`, in shingi's config directory, for shingi to run after a successful `create`, `adopt`, or `delete`: copying a template into a new unit's folder, telling a coordinator. They are the user's, as a git hook is.
+The user may list commands of their own in `hooks.json`, in shingi's config directory, for shingi to run after a successful `create`, `adopt`, `create-batch`, or `delete`: copying a template into a new unit's folder, telling a coordinator. They are the user's, as a git hook is.
 
-- **Your `create` runs them.** A hook may already have set a new unit up, so look at what is there (`shingi context <path>`) before adding to it.
+- **Your `create` or `create-batch` runs them.** A hook may already have set a new unit up, so look at what is there (`shingi context <path>`) before adding to it. A `create-batch` runs its own event's hooks, once, not `create`'s for each unit.
 - **A hook never fails the command.** One that fails is a `hook-failed` or `hook-timeout` warning on a command that succeeded: `.result` is as good as with no hooks. Report it, and leave rerunning the hook to the user.
-- **A hooks file shingi can't use stops `create`, `adopt`, and `delete`** before they change anything (`invalid-hooks`). Reads still work.
+- **A hooks file shingi can't use stops `create`, `adopt`, `create-batch`, and `delete`** before they change anything (`invalid-hooks`). Reads still work.
 - **Never write, change, or disable anything in `hooks.json` unasked,** and never work around a failing hook by making the unit some other way.
 
 ## Moving and removing units

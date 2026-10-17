@@ -30,20 +30,21 @@ def warning(kind, message, unit, ids=(), details=None):
 MAX_PATH = 193  # so a start task's title, "Start: <path>", fits koan's 200
 
 
-def check_path(path, creating=False):
+def check_path(path, field, creating=False):
     """Raise invalid-name, naming the first bad segment, unless `path` is a unit path; and when
-    `creating`, unless it is at most MAX_PATH characters."""
+    `creating`, unless it is at most MAX_PATH characters. `field` is a JSON Pointer to the input
+    field the path came from."""
     for index, segment in enumerate(path.split("/")):
         reason = segment_problem(segment)
         if reason is not None:
             raise OperationError("invalid-name", f"invalid unit path {path!r}: segment {index} is {reason}", {
-                "path": path, "index": index, "segment": segment, "reason": reason,
+                "field": field, "path": path, "index": index, "segment": segment, "reason": reason,
             })
     if creating and len(path) > MAX_PATH:
         raise OperationError(
             "invalid-name",
             f"{path!r} is over {MAX_PATH} characters",
-            {"path": path, "index": None, "segment": None, "reason": "path-length"},
+            {"field": field, "path": path, "index": None, "segment": None, "reason": "path-length"},
         )
 
 
@@ -61,6 +62,20 @@ def segment_problem(segment):
 
 def resolve(rules, path):
     """Raise not-found unless every folder on `path` exists, by its exact name, and holds a manifest."""
+    segments = path.split("/")
+    depth = unit_depth(rules, path)
+    if depth < len(segments):
+        missing = "/".join(segments[: depth + 1])
+        raise OperationError(
+            "not-found",
+            f"{path} is not a unit: {missing} is not",
+            {"unit": path, "missing": missing, "cwd": None, "reason": "not-a-unit"},
+        )
+
+
+def unit_depth(rules, path):
+    """How many of `path`'s leading segments are units: each folder down to there exists, by its
+    exact name, and holds a manifest."""
     folder = rules.working_root
     segments = path.split("/")
     for i, segment in enumerate(segments):
@@ -68,12 +83,8 @@ def resolve(rules, path):
         # The working root may not exist yet: then nothing is a unit.
         exact = folder.parent.is_dir() and segment in os.listdir(folder.parent)
         if not (exact and folder.is_dir() and (folder / MANIFEST).is_file()):
-            missing = "/".join(segments[: i + 1])
-            raise OperationError(
-                "not-found",
-                f"{path} is not a unit: {missing} is not",
-                {"unit": path, "missing": missing, "cwd": None, "reason": "not-a-unit"},
-            )
+            return i
+    return len(segments)
 
 
 def path_key(path):
@@ -249,7 +260,7 @@ def koan_failed(error, unit):
 
 
 def sort_warnings(warnings):
-    """In the spec's order: by kind, unit in path order (null first), ids, then role."""
+    """In the spec's order: by kind, unit in path order (null first), ids, role, then `after`."""
     roles = {"start": 0, "done": 1}
     return sorted(warnings, key=lambda w: (
         w["kind"],
@@ -257,6 +268,7 @@ def sort_warnings(warnings):
         path_key(w["unit"] or ""),
         w["ids"],
         roles.get(w["details"].get("role"), -1),
+        path_key(w["details"].get("after") or "") if w["kind"] == "after-unlinked" else [],
     ))
 
 
@@ -278,6 +290,19 @@ def read_unit(rules, path):
         else:
             warnings += missing_tasks(path, start, done) + koan_warnings
     return build_unit(rules, path, manifest, start, done), sort_warnings(warnings)
+
+
+def unit_from(rules, path, manifest, tasks):
+    """The unit object and its missing-task warnings, its tasks matched from `tasks`, a recursive
+    koan list of a folder that holds it, or None when koan failed."""
+    start = done = None
+    warnings = []
+    if manifest is not None and tasks is not None:
+        kfolder = koan_folder(rules, path)
+        start = match(tasks, kfolder, manifest["id"], "shingi-start")
+        done = match(tasks, kfolder, manifest["id"], "shingi-done")
+        warnings = missing_tasks(path, start, done)
+    return build_unit(rules, path, manifest, start, done), warnings
 
 
 def missing_tasks(path, start, done):
