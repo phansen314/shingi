@@ -1,8 +1,8 @@
 # shingi CLI spec
 
-The `shingi` command-line interface: how each command maps to the [operations](operations.md), how input gets in, and what comes out. The CLI adds no behavior of its own beyond parsing arguments, reading `--input` and `--notes-file`, passing `where` the current directory, and passing `--config` on to the rules; everything about the data is specified by the operations and the [design spec](design-spec.md).
+The `shingi` command-line interface: how each command maps to the [operations](operations.md), how input gets in, and what comes out. The CLI adds no behavior of its own beyond parsing arguments, reading `--input` and `--notes-file`, passing `where`, `context`, `bind`, and `unbind` the current directory, and passing `--config` on to the rules; everything about the data is specified by the operations and the [design spec](design-spec.md).
 
-The global rules follow koan's CLI spec almost word for word, so one habit covers koan, sesshin, and shingi. Where shingi differs, this document says so: its subject is optional for `where`, `context`, and `list`, `create` and `adopt` take two arguments, and it has a `--config` option.
+The global rules follow koan's CLI spec almost word for word, so one habit covers koan, sesshin, and shingi. Where shingi differs, this document says so: its subject is optional for `where`, `context`, `list`, and `unbind`; `create`, `adopt`, and `bind` take two arguments, `bind`'s second optional; and it has a `--config` option.
 
 ## Global behavior
 
@@ -34,7 +34,7 @@ The global rules follow koan's CLI spec almost word for word, so one habit cover
 - **Operation rules apply.** The input is held to the operation's input schema and additional validation; violations are `invalid-input`.
 - **Unreadable input.** A missing or unreadable `<file>`, or a directory, is `io`.
 - **Either `--input` or field arguments, not both.** Giving `--input` together with any argument or option that sets an input field is a [usage error](#usage-errors). `--config` sets no input field, so it goes with either.
-- **`--input` is taken as-is.** In particular, `where -i` gets no `cwd` from the CLI: the input names the unit or the directory itself.
+- **`--input` is taken as-is.** In particular, `where -i` and `context -i` get no `cwd` from the CLI, nor `bind -i` and `unbind -i` a `dir`: the input names the unit or the directory itself.
 
 ```sh
 jq -n '{path: "HOME-12345", kind: "group", title: "Payment retries"}' | shingi create -i -
@@ -45,13 +45,13 @@ jq -n --arg d "$PWD" '{cwd: $d}' | shingi where -i -
 
 The command line is parsed in the GNU style, with koan's rules:
 
-- **Command names are operation names:** `where`, `context`, `list`, `kinds`, `version`, `create`, `adopt`, `create-batch`, `delete`. There are no aliases.
+- **Command names are operation names:** `where`, `context`, `list`, `kinds`, `version`, `create`, `adopt`, `create-batch`, `delete`, `bind`, `unbind`. There are no aliases.
 - **Option names are field names,** in kebab-case. `--input`, `--notes-file`, `--config`, and `--help` are the exceptions: none sets a field under its own name.
-- **Arguments are for required subjects,** with two departures from koan. `where`, `context`, and `list` take their unit as an optional argument, since a unit is a path and no option could be confused with one; and `create` and `adopt` take two, its path and its kind, in that order. Everything else is an option, so a bare token always has one meaning. `create-batch` takes none, and no option that sets a field: its input is `--input`'s, as koan's `create-batch`'s is.
-- **Paths are exact.** A unit path is taken exactly as given: never completed, normalized, case-folded, or derived from the working directory (but see [`where`](#where)). `HOME-12345/` and `/HOME-12345` reach the operation as given, which rejects them as `invalid-name`.
+- **Arguments are for required subjects,** with two departures from koan. `where`, `context`, and `list` take their unit as an optional argument, and `unbind` its folder, since a unit or a folder is a path and no option could be confused with one; and `create` and `adopt` take two, its path and its kind, in that order, as `bind` takes its unit and, optionally, its folder. Everything else is an option, so a bare token always has one meaning. `create-batch` takes none, and no option that sets a field: its input is `--input`'s, as koan's `create-batch`'s is.
+- **Paths are exact.** A unit path is taken exactly as given: never completed, normalized, case-folded, or derived from the working directory (but see [`where`](#where)). A folder, `bind`'s or `unbind`'s `<dir>`, is a filesystem path: a relative one is made absolute against the current directory, as `--config`'s is read, and the operation resolves it to its real path. `HOME-12345/` and `/HOME-12345` reach the operation as given, which rejects them as `invalid-name`.
 - **Options and arguments follow the command,** in any order: `shingi <command> [options and arguments]`. `--help` may also be given with no command.
 - **`--`** ends options; everything after it is an argument. A lone `-` is an ordinary argument.
-- **Option values** may be given as `--flag value` or `--flag=value`, and `-i` as `-i value` or `-ivalue`. An option that takes a value always consumes the next token, even one starting with `-`.
+- **Option values** may be given as `--flag value` or `--flag=value`, and `-i` as `-i value` or `-ivalue`. An option that takes a value always consumes the next token, even one starting with `-`. `bind`'s `--replace` takes none: given, it sets its field `true`; a value given to it (`--replace=yes`) is a usage error.
 - **Exact names.** Commands and options are matched exactly: no abbreviations and no other case.
 - **Empty values are values:** `--title ''` sets the empty string, which the operation rejects as `invalid-input`; `--notes ''` is no notes.
 - **Arguments are single tokens.** A value with spaces, such as a title, is one argument, quoted for the shell.
@@ -105,7 +105,7 @@ A usage error is a problem with the command line itself: an unknown command or o
 | any other | Outcome unknown: shingi was terminated before it finished (e.g. `128+n` for signal `n`). Handle like `3`. |
 
 - **One code for all operation errors.** Callers branch on the envelope's `kind`, not the exit code.
-- **Outcome unknown.** On `3` or any status outside `0`–`2`, the operation may already have taken effect. The caller follows the operation's **Retry safety** for a crash. For a read, rerunning is always safe; for [`create`](operations.md#create), [`adopt`](operations.md#adopt), and [`create-batch`](operations.md#create-batch), it is not, as it stands.
+- **Outcome unknown.** On `3` or any status outside `0`–`2`, the operation may already have taken effect. The caller follows the operation's **Retry safety** for a crash. For a read, [`delete`](operations.md#delete), [`bind`](operations.md#bind), and [`unbind`](operations.md#unbind), rerunning is always safe; for [`create`](operations.md#create), [`adopt`](operations.md#adopt), and [`create-batch`](operations.md#create-batch), it is not, as it stands.
 - **Unwritable stdout.** When stdout cannot be written (a closed pipe, a full disk behind a redirect), shingi exits `3` with a notice on stderr. This applies even when nothing was run, e.g. a usage error with stdout closed.
 - **Interrupts are crashes.** An interrupt or termination signal (Ctrl-C, `kill`, a harness's timeout) ends shingi as the signal's default would: no envelope, no traceback, exit `128+n`. A koan call it was waiting on is koan's to finish or not. A [hook](hooks-spec.md#running-a-hook) it was running is not left so: on `SIGINT`, `SIGTERM`, or `SIGHUP`, shingi first kills the hook's process group, then dies of the same signal, and the hooks after it don't run. The command's change is already made. A shingi killed by `SIGKILL` kills nothing, and its hook runs on.
 
@@ -153,7 +153,7 @@ Everything about one unit: the unit named, or the one the current directory is i
 
 **Options:** none.
 
-**Input:** with no `<unit>` and no `--input`, the CLI sets `cwd` to the process's current directory, so `shingi where` in a unit's working folder, or anywhere in its working material, names that unit. A current directory that no longer exists is `io`. With `--input`, the input is taken as-is: exactly one of `unit` and `cwd`.
+**Input:** with no `<unit>` and no `--input`, the CLI sets `cwd` to the process's current directory, so `shingi where` in a unit's working folder, anywhere in its working material, or anywhere in a folder [bound](#bind) to it, names that unit. A current directory that no longer exists is `io`. With `--input`, the input is taken as-is: exactly one of `unit` and `cwd`.
 
 **Output:** Passthrough: the [unit](operations.md#unit).
 
@@ -166,7 +166,7 @@ Everything about one unit: the unit named, or the one the current directory is i
 **Examples:**
 
 ```sh
-shingi where | jq -r .result.path                                  # which unit am I in?
+shingi where | jq -r .result.path                                  # which unit am I in? also from a bound worktree
 cd "$(shingi where HOME-12345/foo-split/1-schema | jq -r .result.working_folder)"
 shingi where HOME-12345 | jq -r '.result.children[].path'
 shingi where HOME-12345/foo-split/1-schema | jq '.result | {state, start: .start.id, done: .done.id}'
@@ -197,8 +197,10 @@ Everything an agent needs to start work on one unit: the unit, its ancestors, it
 **Examples:**
 
 ```sh
-shingi context HOME-12345/foo-split/1-schema                        # a worker's first command
+shingi context                                                      # a worker's first command, in its bound worktree
+shingi context HOME-12345/foo-split/1-schema                        # a unit by its path, from anywhere
 shingi context | jq -r '.result.ancestors[] | "\(.path)\t\(.title)"'  # why this unit exists
+shingi context | jq -r '.result.marker'                               # the marker it was found by
 shingi context | jq -r '.result.tasks[] | select(.readiness == "ready") | "\(.id)\t\(.title)"'
 ```
 
@@ -430,6 +432,75 @@ Make a unit a plain folder again: remove its tasks from koan and its manifest, a
 shingi delete HOME-12345/1-schmea                          # a mistyped create
 shingi delete HOME-12345/spike | jq -r .result.working_folder | xargs rm -r   # and its folder too
 shingi delete HOME-12345/spike && shingi adopt HOME-12345/spike branch        # the wrong kind, corrected
+```
+
+### bind
+
+Bind a folder outside the working root, usually a worktree, to a unit, so `where` and `context` find the unit from anywhere in it. Runs [`bind`](operations.md#bind).
+
+**Synopsis:** `shingi bind <unit> [<dir>] [--replace]`, or `shingi bind -i <file>`.
+
+**Operation:** [`bind`](operations.md#bind).
+
+**Arguments:**
+
+| Argument | Field | Notes |
+|---|---|---|
+| `<unit>` | `/unit` | Required unless `--input` is given. The unit's path, exact. |
+| `<dir>` | `/dir` | Optional. The folder to bind; relative to the current directory. Default: the current directory. |
+
+**Options:**
+
+| Option | Field | Default |
+|---|---|---|
+| `--replace` | `/replace` | Not given: `false`. Takes no value. Replaces another unit's marker instead of refusing it as `bound-elsewhere`. |
+
+**Input:** with no `<dir>` and no `--input`, the CLI sets `dir` to the process's current directory; a relative `<dir>` is made absolute against it. With `--input`, the input is taken as-is: `dir` is required, and absolute.
+
+**Output:** Passthrough: `{ "unit", "marker" }`.
+
+**Errors:**
+
+| Kind | When |
+|---|---|
+| `io` | With no `<dir>`, or a relative one, the current directory can't be read, e.g. it was removed. `details.path` is `"."`, as [`where`](#where)'s. |
+
+**Examples:**
+
+```sh
+shingi bind HOME-12345/foo-split/1-schema "$worktree"                # in a setup task, right after git worktree add
+shingi bind HOME-12345/foo-split/1-schema                           # the current directory
+shingi bind HOME-12345/foo-split/2-model --replace                  # this worktree is 2-model's now
+shingi bind HOME-12345/foo-split/1-schema "$worktree" | jq -r .result.marker
+```
+
+### unbind
+
+Remove a folder's marker, so it no longer names a unit. Seldom needed: removing a worktree removes its marker. Runs [`unbind`](operations.md#unbind).
+
+**Synopsis:** `shingi unbind [<dir>]`, or `shingi unbind -i <file>`.
+
+**Operation:** [`unbind`](operations.md#unbind).
+
+**Arguments:**
+
+| Argument | Field | Notes |
+|---|---|---|
+| `<dir>` | `/dir` | Optional. The bound folder; relative to the current directory. Default: the current directory. |
+
+**Options:** none.
+
+**Input:** as [`bind`](#bind)'s `<dir>`.
+
+**Output:** Passthrough: `{ "dir", "removed" }`.
+
+**Errors:** as [`bind`](#bind)'s.
+
+**Examples:**
+
+```sh
+shingi unbind "$worktree"
+shingi unbind | jq -r '.error.details.reason // empty'   # no-marker: not the folder bind was given
 ```
 
 ## Not included

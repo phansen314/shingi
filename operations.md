@@ -2,7 +2,7 @@
 
 An operation is a single query of, or change to, what the [design spec](design-spec.md) defines. Operations are the domain layer, small and orthogonal. They are not CLI commands, though each command runs exactly one: [cli-spec.md](cli-spec.md) gives each command's arguments and maps them onto the input fields here.
 
-The operations are the four that read the tree, [`where`](#where), [`context`](#context), [`list`](#list), and [`kinds`](#kinds); [`version`](#version); and the four that change anything, [`create`](#create), [`adopt`](#adopt), [`create-batch`](#create-batch), and [`delete`](#delete).
+The operations are the four that read the tree, [`where`](#where), [`context`](#context), [`list`](#list), and [`kinds`](#kinds); [`version`](#version); the four that change the tree, [`create`](#create), [`adopt`](#adopt), [`create-batch`](#create-batch), and [`delete`](#delete); and the two that change only a [marker](design-spec.md#markers), [`bind`](#bind) and [`unbind`](#unbind).
 
 Terms follow the design spec's [Terms](design-spec.md#terms).
 
@@ -18,6 +18,7 @@ Terms follow the design spec's [Terms](design-spec.md#terms).
 
 - ***read*** — Changes nothing and takes no lock: [`where`](#where), [`context`](#context), [`list`](#list), [`kinds`](#kinds), and [`version`](#version).
 - ***write*** — Changes koan's tree and the working root: [`create`](#create), [`adopt`](#adopt), [`create-batch`](#create-batch), and [`delete`](#delete). None takes a lock of its own; koan serializes its own writes, and the manifest's exclusive create settles a race (see [Concurrency](design-spec.md#concurrency)). Each, once it has succeeded, [runs the user's hooks](#running-hooks).
+- ***marker*** — Changes only a [marker](design-spec.md#markers), outside koan's tree and the working root: [`bind`](#bind) and [`unbind`](#unbind). Neither takes a lock or runs hooks, so no rule here for a write applies to them, and a broken hooks file never blocks them.
 
 ## Operation template
 
@@ -48,7 +49,7 @@ Every operation returns one of two shapes:
 ```
 
 - **`result`** — the operation's output, per its Output schema.
-- **`error`** — why it failed, per the [error schema](#error-schema). An error means the operation changed nothing, except a `create`, `adopt`, or `create-batch` whose error carries a `partial`, and a `delete` that failed removing the manifest, whose tasks are gone. A `create-batch`'s `partial` also names the units it finished, which exist and stay.
+- **`error`** — why it failed, per the [error schema](#error-schema). An error means the operation changed nothing, except a `create`, `adopt`, or `create-batch` whose error carries a `partial`, a `delete` that failed removing the manifest, whose tasks are gone, and a `bind` or `unbind` that failed part-way, which is run again (see their **Retry safety**). A `create-batch`'s `partial` also names the units it finished, which exist and stay.
 - **`warnings`** — problems that did not stop it, per the [warning schema](#warning-schema). Present, possibly empty, on success and failure alike.
 
 ```json
@@ -92,7 +93,7 @@ Every operation returns one of two shapes:
 | `invalid-rules` | The rules file is unreadable, not TOML, or breaks the design spec's [Fields](design-spec.md#fields); or the file `--config` names is missing. | `path`: the rules file; `reason`: `missing` (from `--config` only), `unreadable`, `syntax`, or `invalid`; `problems`: for `invalid`, a `{field, reason}` list, `field` the dotted TOML key (`schema`, `kind.branch.suggests`), sorted by `field`; otherwise empty. `code`: the symbolic OS error, for `unreadable`. |
 | `unsupported-format` | The rules file's `schema`, or the hooks file's, is an integer shingi doesn't support. | `path`: the file, which says which of the two it is; `schema`: the one found; `supported`: the ones shingi supports, ascending. |
 | `invalid-hooks` | The hooks file is unreadable, not JSON, or breaks the hooks spec's [Fields](hooks-spec.md#fields) (see [Running hooks](#running-hooks)). Nothing was changed. | `path`: the hooks file; `reason`: `unreadable`, `syntax`, or `invalid`; `problems`: for `invalid`, a `{field, reason}` list, `field` a JSON Pointer into the file (`/hooks/create/0/timeout`), sorted by `field` as strings (`/hooks/create/10` before `/hooks/create/2`); otherwise empty. `code`: the symbolic OS error, for `unreadable`. |
-| `not-found` | The unit named is not a unit; from [`where`](#where) or [`context`](#context) without one, the current directory is in no unit; or, from [`adopt`](#adopt), the folder to adopt doesn't exist. | `unit`: the path given, or `null`; `missing`: the shortest prefix of `unit` that is not a unit (the first folder on the path that doesn't exist, matches only ignoring case, or holds no `uow.json`), or `null`; `cwd`: the directory given, or `null`; `reason`: `not-a-unit` (a path was given), `outside-root`, `no-unit`, or, from `adopt`, `no-folder` (with `missing` the path itself). |
+| `not-found` | The unit named is not a unit; from [`where`](#where) or [`context`](#context) without one, the current directory is in no unit, or its [marker](#reading-a-marker) names none; from [`adopt`](#adopt), the folder to adopt doesn't exist; from [`bind`](#bind), the folder to bind doesn't exist or isn't a directory; or, from [`unbind`](#unbind), the folder holds no `.shingi/`. | `unit`: the path given, or `null`; `missing`: the shortest prefix of `unit` that is not a unit (the first folder on the path that doesn't exist, matches only ignoring case, or holds no `uow.json`), or `null`; `cwd`: the directory given — `where`'s and `context`'s `cwd`, `bind`'s and `unbind`'s `dir` — or `null`; `reason`, one of: `not-a-unit`, a path was given, from any of them, `bind` included; `outside-root` or `no-unit`, from `where` and `context` with `cwd`; `unit-deleted`, from them too, the marker's unit in no folder of the tree; `no-folder`, from `adopt`, with `missing` the path itself, and from `bind`, with `missing` `null`; `no-marker`, from `unbind`; `marker`: for `unit-deleted`, the marker's path, otherwise `null`. |
 | `invalid-name` | A path breaks the design spec's [Names](design-spec.md#names). | `field`: a JSON Pointer to the input field the path came from (`/unit`, `/path`, or, for an entry of `create`'s `after`, `/after/0`; from `create-batch`, under the entry, `/units/3/path` or `/units/3/after/0`); `path`: as given; `index`: the first bad segment's position, from `0`; `segment`: that segment; `reason`: `empty` (a leading, trailing, or doubled `/`, or an empty path), `characters`, `length`, `hyphen` (starts or ends with `-`), or, from [`create`](#create), [`adopt`](#adopt), or [`create-batch`](#create-batch) only, `path-length` (the whole path is over 193 characters; `index` and `segment` `null`). |
 | `parent-not-found` | `create`'s or `adopt`'s path, or the path of a `create-batch` entry, has more than one segment, and its parent is not a unit. | `parent`: the parent's path; `missing`: as for `not-found`. |
 | `after-lineage` | An entry of an `after` names the new unit itself, one of its ancestors, or a path beneath it. | `field`: a JSON Pointer to the entry (`/after/0`); `after`: the entry; `relation`: `self`, `ancestor`, or `descendant`. |
@@ -103,6 +104,9 @@ Every operation returns one of two shapes:
 | `duplicate-path` | Two entries of `create-batch`'s `units` have the same path, exactly or ignoring ASCII case. | `fields`: JSON Pointers to the two paths, the earlier entry's first (`/units/1/path`, `/units/4/path`); `paths`: the two paths, as given; `reason`: `same`, or `case`. |
 | `after-cycle` | The links a `create-batch` describes hold a cycle. | `cycle`: the paths of the units it runs through, each waiting on the next and the last on the first (see [`create-batch`](#create-batch)). |
 | `has-children` | [`delete`](#delete)'s unit has child units. | `unit`: its path; `children`: the child units' paths, in path order. |
+| `unsupported-manifest` | [`bind`](#bind)'s unit has an unusable manifest (see [Reading a unit](#reading-a-unit)), so there is no `id` to bind. | `unit`: its path; `path`: the manifest; `reason`: as the [warning](#warning-kinds)'s. |
+| `inside-root` | [`bind`](#bind)'s folder is the working root or under it, where a unit is found without a marker. | `dir`: the folder, at its real path; `root`: the working root. |
+| `bound-elsewhere` | [`bind`](#bind)'s folder holds a usable marker, written there, for another unit, and `replace` wasn't given. | `marker`: the marker's path; `unit`: the `path` it holds; `id`: the `id` it holds. |
 | `koan-failed` | koan could not be run, or returned an error (see [Running koan](#running-koan)). | `call`: `list`, `create-batch`, `block`, or `delete-folder`; `exit`: koan's exit status, or `null` when it couldn't be run; `error`: koan's `error` object, or `null` when koan printed no envelope. |
 | `io` | The filesystem refused: permission denied, disk full, and the like. | `path`; `code`: the symbolic OS error, e.g. `EACCES`, or `null` when it has none. |
 | `internal` | A bug shingi detects: an unexpected exception, still reported as an envelope. | `{}`. |
@@ -113,7 +117,7 @@ From `create-batch`, an error about one entry says which in `field`, a JSON Poin
 
 ### Precedence
 
-Each operation's Errors table lists its checks in the order it makes them, and an error is the first check that fails. For every operation but `version`, the first three are always `invalid-input`, `invalid-rules`, and `unsupported-format`; the rules file is checked as [Reading the rules](#reading-the-rules) says. For a write, the hooks file's two come next, `invalid-hooks` and `unsupported-format`, in the order of the hooks spec's checks, in [When it is read](hooks-spec.md#when-it-is-read): an unsupported `schema` is `unsupported-format` whatever else is wrong with the file's fields, as it is for the rules.
+Each operation's Errors table lists its checks in the order it makes them, and an error is the first check that fails. For every operation but `version`, the first three are always `invalid-input`, `invalid-rules`, and `unsupported-format`; the rules file is checked as [Reading the rules](#reading-the-rules) says. A marker operation reads no hooks file, so its own checks come next. For a write, the hooks file's two come next, `invalid-hooks` and `unsupported-format`, in the order of the hooks spec's checks, in [When it is read](hooks-spec.md#when-it-is-read): an unsupported `schema` is `unsupported-format` whatever else is wrong with the file's fields, as it is for the rules.
 
 ### Error schema
 
@@ -140,7 +144,7 @@ Each operation's Errors table lists its checks in the order it makes them, and a
 
 A warning is a problem an operation told and went on past. It never changes the outcome, and never guesses: what it reports as `null` stays `null`.
 
-- **One warning per problem:** per unit for `unsupported-manifest` and `undefined-kind`, per unit and role for `missing-task` and `parent-unlinked`, per new unit for `parent-done`, per new unit and entry of its `after` for `after-unlinked`, per task for `orphan-task`, per koan warning for `koan-warning`, per hook for `hook-failed` and `hook-timeout`.
+- **One warning per problem:** per marker for `unsupported-marker`, `foreign-marker`, and `stale-marker`, of which a read reports at most one; per unit for `unsupported-manifest` and `undefined-kind`, per unit and role for `missing-task` and `parent-unlinked`, per new unit for `parent-done`, per new unit and entry of its `after` for `after-unlinked`, per task for `orphan-task`, per koan warning for `koan-warning`, per hook for `hook-failed` and `hook-timeout`.
 - **Deterministic order:** `warnings` is sorted by `kind`, then by `unit` in [path order](design-spec.md#terms), `null` first, then by `ids`, compared element by element as numbers, then by `details.role`, `start` before `done`, then by `details.after` in path order. `koan-warning`s that still tie keep koan's order, calls in the order shingi made them. Hook warnings that still tie keep the order their hooks ran in; since `kind` comes first, every `hook-failed` is before every `hook-timeout`, and `details.index` says the order they ran in.
 
 ### Warning kinds
@@ -158,6 +162,9 @@ A warning is a problem an operation told and went on past. It never changes the 
 | `koan-warning` | A koan call succeeded with a warning of its own. An unusable task file can hide a start or done task, so while one is present, `missing-task`, `orphan-task`, `parent-unlinked`, or `after-unlinked` may be wrong. | `null` | the koan warning's `ids` | `call`; `warning`: koan's warning, verbatim. |
 | `hook-failed` | A hook exited nonzero, was killed by a signal, or couldn't be started (see [Running hooks](#running-hooks)). The operation's change is made, and stays. | the unit the operation was about; for `delete`, the unit deleted; for `create-batch`, `null` | `[]` | `event`; `index`: the hook's position in the event's list, from `0`, disabled hooks counted, so it is the index in the hooks file; `command`; `description`, or `null`; `exit`: its exit status, `128+n` when signal `n` killed it, as a shell reports it, or `null` when it couldn't be started; `stderr`: the last 2,048 bytes of its stderr, as UTF-8 with invalid bytes replaced; `""` when it wrote none, or couldn't be started. The `message` of one that couldn't be started names the OS error, since nothing else in the warning says why. Anything that goes wrong in shingi running a hook (a full disk, an unexpected error) is the same: `exit` `null`, the `message` naming the error, and the command succeeds. |
 | `hook-timeout` | A hook was still running when its timeout passed, and was killed. | as `hook-failed`'s | `[]` | `event`; `index`; `command`; `description`, each as `hook-failed`'s; `timeout`: the seconds it had; `stderr`, as `hook-failed`'s. |
+| `unsupported-marker` | The nearest marker is unusable (see [Reading a marker](#reading-a-marker)). The walk stops at it and finds no unit: the operation is `not-found`, `reason` `outside-root`. | `null` | `[]` | `path`: the marker; `reason`: `unreadable`, `corrupt`, or `unsupported-format`. |
+| `foreign-marker` | The nearest marker's `dir` isn't the folder it is in: it was copied, committed, or moved with its folder. It is never used: the operation is `not-found`, `reason` `outside-root`. | `null` | `[]` | `path`: the marker; `dir`: the folder it names. |
+| `stale-marker` | The marker's `path` doesn't hold its unit, which was found by its `id` in another folder of the tree, and is the unit reported. [`bind`](#bind) refreshes it. | the unit found | `[]` | `path`: the marker; `stale`: the `path` it holds. |
 
 ### Warning schema
 
@@ -219,17 +226,31 @@ A path names a unit when, for each prefix of it from the first segment, the fold
 
 ### Resolving a directory
 
-[`where`](#where) and [`context`](#context) without a unit name the unit `cwd` is in. `cwd`, resolved to its real path, is outside the working root unless it is the working root or under it (`not-found`, `reason` `outside-root`). Otherwise its segments below the working root are walked from the first: the unit is the longest prefix every folder of which holds a `uow.json`, so a directory inside a unit's working material is in that unit. When the first segment's folder holds none, or `cwd` is the working root, it is in no unit (`not-found`, `reason` `no-unit`).
+[`where`](#where) and [`context`](#context) without a unit name the unit `cwd` is in. `cwd` is resolved to its real path, then:
+
+1. **In the working root** — the working root or under it — its segments below the working root are walked from the first: the unit is the longest prefix every folder of which holds a `uow.json`, so a directory inside a unit's working material is in that unit. When the first segment's folder holds none, or `cwd` is the working root, it is in no unit (`not-found`, `reason` `no-unit`). No marker is looked at.
+2. **Outside it,** each folder from `cwd` up to `/` is looked in, `cwd` first, for an entry `.shingi/unit.json`, and the first that holds one is the folder found: a `.shingi/` with no `unit.json` is passed. None holds one: `not-found`, `reason` `outside-root`. A folder whose entries can't be looked at is `io`.
+3. **The marker found is used or refused, never passed,** so a marker further up, which could be another unit's, is never reached. It is [read](#reading-a-marker), then:
+   1. Unusable: warn `unsupported-marker`; `not-found`, `reason` `outside-root`.
+   2. Its `dir` isn't the folder found, byte for byte: warn `foreign-marker`; `not-found`, `reason` `outside-root`.
+   3. Its `path` [resolves](#resolving-a-path), and that unit's manifest is usable with the marker's `id`: that is the unit.
+   4. Otherwise the unit is looked for by its `id`, in one [walk of the tree](#walking-the-tree) from the working root, reading each manifest found and warning about none: the first unit in path order whose `id` is the marker's is the unit, warned `stale-marker`. None: `not-found`, `reason` `unit-deleted`, with `marker` the marker's path.
+
+The marker is never written: a read repairs nothing.
 
 ### Walking the tree
 
-[`list`](#list) walks from a unit's working folder, or from the working root. In each folder it lists the entries, skips every entry whose name starts with `.`, and takes each remaining entry that is a directory holding a `uow.json` as a unit, a child of the folder's unit, and walks into it. It walks into nothing else, so working material is never walked. The same test finds a unit's **children** for [`where`](#where).
+[`list`](#list) walks from a unit's working folder, or from the working root, and [Resolving a directory](#resolving-a-directory) from the working root, for a stale marker's unit. In each folder it lists the entries, skips every entry whose name starts with `.`, and takes each remaining entry that is a directory holding a `uow.json` as a unit, a child of the folder's unit, and walks into it. It walks into nothing else, so working material is never walked. The same test finds a unit's **children** for [`where`](#where).
 
 ### Reading a unit
 
 - **The manifest** is usable when it is UTF-8 JSON, one object with exactly `schema`, `id`, and `kind`: `schema` an integer shingi supports (`1`), `id` a UUID in its lowercase canonical 36-character form, `kind` a string. Otherwise it is unusable, and `unsupported-manifest` gives the `reason`: `unreadable` (the file can't be read), `unsupported-format` (`schema` is an integer shingi doesn't support), or `corrupt` (anything else). A usable manifest whose `kind` the rules don't define is `undefined-kind`.
 - **The title** is the first line of `uow.md` that holds anything but whitespace, when it starts with `# `: the rest of the line, with surrounding whitespace trimmed. Otherwise, and when `uow.md` is missing or unreadable, it is `""`. `uow.md` is read as UTF-8, with invalid bytes replaced, and its line endings may be `\n` or `\r\n`.
 - **A child's kind** is from its manifest, or `null` when that is unusable. A child is never warned about by its parent's `where`.
+
+### Reading a marker
+
+A marker is the `.shingi/unit.json` of a folder outside the working root (see the design spec's [Markers](design-spec.md#markers)). It is usable when it is UTF-8 JSON, one object with exactly `schema`, `id`, `path`, and `dir`: `schema` an integer shingi supports (`1`), `id` a UUID in its lowercase canonical 36-character form, `path` a [unit path](#unit-paths), `dir` a string. Otherwise it is unusable, and `unsupported-marker` gives the `reason`, judged as a manifest's: `unreadable`, `unsupported-format`, or `corrupt`. Every path in output that names a marker is its `unit.json`'s.
 
 ### Running koan
 
@@ -255,7 +276,7 @@ A unit's `state` is `null` when its start or done task is `null`. Otherwise it i
 
 ### Running hooks
 
-Every write runs the user's hooks, which the [hooks spec](hooks-spec.md) defines: the hooks file, the payload, and how one hook is run. This is what an operation does with them. Reads never read the hooks file.
+Every write runs the user's hooks, which the [hooks spec](hooks-spec.md) defines: the hooks file, the payload, and how one hook is run. This is what an operation does with them. Reads and marker operations never read the hooks file.
 
 - **Before it changes anything,** right after [reading the rules](#reading-the-rules), a write reads the hooks file: `hooks.json`, at `shingi.toml`'s usual [location](design-spec.md#locations), whatever `--config` names. With no file there, there are no hooks, and nothing is checked. Otherwise all of it is checked, every event's hooks, in the order [When it is read](hooks-spec.md#when-it-is-read) gives (`invalid-hooks`, `unsupported-format`). The file is read this once: the hooks that run are the ones checked.
 - **After everything else,** once the operation has succeeded, it fires its event, named after it: it runs that event's hooks, in the file's order, skipping disabled ones, each as [Running a hook](hooks-spec.md#running-a-hook) says and each given the same [payload](hooks-spec.md#the-payload), which carries the operation's input as it was received, its `result`, and its own warnings. An operation that fails runs none, even one that made something first.
@@ -348,12 +369,12 @@ Return everything about one unit: the unit named, or the one a directory is in.
 
 **Additional validation:** exactly one of `unit` and `cwd` is given. `cwd` is absolute.
 
-**Preconditions:** `unit` names a unit, or `cwd` is in one.
+**Preconditions:** `unit` names a unit, or `cwd` is in one, or in a folder bound to one.
 
 **Effects:**
 
 1. [Read the rules](#reading-the-rules).
-2. With `unit`: check it is a [unit path](#unit-paths) and [resolve it](#resolving-a-path). With `cwd`: [resolve the directory](#resolving-a-directory).
+2. With `unit`: check it is a [unit path](#unit-paths) and [resolve it](#resolving-a-path). With `cwd`: [resolve the directory](#resolving-a-directory), in the working root or, outside it, through a marker.
 3. [Read the unit](#reading-a-unit) and find its children.
 4. With a usable manifest, [find its start and done tasks](#finding-start-and-done-tasks), non-recursively, in its koan folder. Otherwise both are `null`, and koan isn't run.
 
@@ -374,7 +395,7 @@ Return everything about one unit: the unit named, or the one a directory is in.
 | `invalid-input` | Neither or both of `unit` and `cwd`, a field not a string, or `cwd` not absolute. |
 | `invalid-rules`, `unsupported-format` | The rules file is unusable. |
 | `invalid-name` | `unit` breaks [Names](design-spec.md#names). |
-| `not-found` | `unit` is not a unit; or `cwd` is outside the working root, or in no unit. |
+| `not-found` | `unit` is not a unit; or `cwd` is in no unit, outside the working root with no marker that names a unit, or bound to a unit that was deleted. |
 
 **Warnings:**
 
@@ -385,6 +406,8 @@ Return everything about one unit: the unit named, or the one a directory is in.
 | `missing-task` | Its start task, or its done task, is not found. |
 | `koan-failed` | koan failed; both tasks are `null`. |
 | `koan-warning` | koan warned. |
+| `unsupported-marker`, `foreign-marker` | The marker found can't be used; with `not-found`. |
+| `stale-marker` | The marker's `path` doesn't hold its unit, which was found by its `id`. |
 
 **Retry safety:**
 
@@ -392,7 +415,7 @@ Return everything about one unit: the unit named, or the one a directory is in.
 
 ### context
 
-Return everything an agent needs to start work on one unit: the unit, as [`where`](#where) returns it, its ancestors, its and its parent's notes, and its open tasks.
+Return everything an agent needs to start work on one unit: the unit, as [`where`](#where) returns it, its ancestors, its and its parent's notes, its open tasks, and the marker it was found by.
 
 **Kind:** read.
 
@@ -421,6 +444,7 @@ Return everything an agent needs to start work on one unit: the unit, as [`where
 2. For each ancestor, from the top-level unit down to the parent, [read its manifest and title](#reading-a-unit), as a child's are read: an unusable manifest gives `null` `id` and `kind`, and no warning.
 3. Read the unit's `uow.md` and its parent's whole, as UTF-8 with invalid bytes replaced.
 4. With a usable manifest, run one koan `list` of the unit's koan folder as [Finding start and done tasks](#finding-start-and-done-tasks) says, with no `tags_all`: its start and done tasks are matched from it, and its open tasks are every task in it whose readiness isn't `done`. Otherwise both tasks and `tasks` are `null`, and koan isn't run.
+5. `marker` is the path of the marker [Resolving a directory](#resolving-a-directory) found the unit by, stale or not; `null` with `unit`, or with a `cwd` in the working root.
 
 **Output schema:**
 
@@ -429,7 +453,7 @@ Return everything an agent needs to start work on one unit: the unit, as [`where
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "context-output",
   "type": "object",
-  "required": ["unit", "ancestors", "notes", "parent_notes", "tasks"],
+  "required": ["unit", "ancestors", "notes", "parent_notes", "tasks", "marker"],
   "properties": {
     "unit": { "$ref": "unit" },
     "ancestors": {
@@ -470,7 +494,8 @@ Return everything an agent needs to start work on one unit: the unit, as [`where
         }
       ],
       "description": "The open tasks in the unit's koan folder, as koan reports them; null when the manifest is unusable or koan failed."
-    }
+    },
+    "marker": { "type": ["string", "null"], "description": "Absolute: the marker the unit was found by, its .shingi/unit.json; null when it was named, or found in the working root." }
   },
   "additionalProperties": false
 }
@@ -1111,4 +1136,152 @@ An `io` removing the manifest comes after the tasks are gone.
 | `koan-warning` | The koan call warned. |
 | `hook-failed`, `hook-timeout` | A hook failed, or ran past its timeout. The unit is deleted. |
 
-**Retry safety:** safe, after any error and any unclear outcome: what is already gone is not an error, and running it again removes the rest. After success, running it again is `not-found`, and runs no hooks: the folder is no longer a unit. A crash while its hooks ran leaves the unit deleted and the hooks after it not run. [`adopt`](#adopt) makes it one again, with a new `id` and new tasks; the old tasks are not restored.
+**Retry safety:** safe, after any error and any unclear outcome: what is already gone is not an error, and running it again removes the rest. After success, running it again is `not-found`, and runs no hooks: the folder is no longer a unit. A crash while its hooks ran leaves the unit deleted and the hooks after it not run. [`adopt`](#adopt) makes it one again, with a new `id` and new tasks; the old tasks are not restored. Its [markers](design-spec.md#markers) are not looked for, and stay: one read after is `not-found`, `reason` `unit-deleted`.
+
+## Marker operations
+
+### bind
+
+Bind a folder outside the working root to a unit: write `.shingi/` in it, its `.gitignore` and then its marker, so [`where`](#where) and [`context`](#context) find the unit from anywhere in the folder.
+
+**Kind:** marker.
+
+**Input schema:**
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bind-input",
+  "type": "object",
+  "required": ["unit", "dir"],
+  "properties": {
+    "unit": { "type": "string", "description": "The unit's path." },
+    "dir": { "type": "string", "description": "The folder to bind. The CLI passes its own current directory when none is given." },
+    "replace": { "type": "boolean", "description": "Replace another unit's marker. Default false." }
+  },
+  "additionalProperties": false
+}
+```
+
+**Additional validation:** `dir` is absolute. No string holds a NUL.
+
+**Preconditions:** `unit` names a unit with a usable manifest. `dir` is a directory outside the working root, and holds no usable marker for another unit whose `dir` is its own, unless `replace`.
+
+**Effects:**
+
+1. **Check,** changing nothing:
+   1. [Read the rules](#reading-the-rules).
+   2. `unit` is a [unit path](#unit-paths) (`invalid-name`) and [resolves](#resolving-a-path) (`not-found`, `reason` `not-a-unit`). [Read its manifest](#reading-a-unit): an unusable one is `unsupported-manifest`.
+   3. `dir`, resolved to its real path, exists and is a directory (`not-found`, `reason` `no-folder`). From here on, `dir` is that real path.
+   4. `dir` is neither the working root nor under it (`inside-root`).
+   5. When `dir` holds `.shingi/unit.json`, [read it as a marker](#reading-a-marker). One that is usable, whose `dir` is `dir`, and whose `id` isn't the unit's is another unit's: `bound-elsewhere`, unless `replace`, whether or not that unit still exists, since the tree isn't walked to tell. Any other is replaced: one for this unit, which is written again with the unit's `path` as it is now; a foreign one; an unusable one; or none, with or without a `.shingi/`.
+2. **Write the marker,** in the [file format](design-spec.md#file-format-1):
+   1. Make `.shingi/` in `dir`, unless it is there.
+   2. Write `.gitignore`, `*` and a newline: to a hidden temp file in `.shingi/`, `.gitignore.<random>.tmp`, flushed, then renamed over `.gitignore`.
+   3. Write `unit.json`, `{ "schema": 1, "id": <the unit's id>, "path": <unit>, "dir": <dir> }`, the same way: `.unit.json.<random>.tmp`, flushed, then renamed over `unit.json`.
+
+   A temp file that can't be removed after a failure is left: it is hidden, and ignored once `.gitignore` is there.
+3. **Report:** read the unit as [`where`](#where) does, by its path, and return it, with the marker's path, and the warnings that read gives.
+
+`bind` takes no lock, reads no hooks file, and runs no hooks.
+
+**Output schema:**
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bind-output",
+  "type": "object",
+  "required": ["unit", "marker"],
+  "properties": {
+    "unit": { "$ref": "unit" },
+    "marker": { "type": "string", "description": "Absolute: the marker written, <dir>/.shingi/unit.json, dir at its real path." }
+  },
+  "additionalProperties": false
+}
+```
+
+**Errors,** in this order:
+
+| Kind | When |
+|---|---|
+| `invalid-input` | `unit` or `dir` missing or not a string, `replace` not a boolean, `dir` not absolute, a NUL, or an unknown field. |
+| `invalid-rules`, `unsupported-format` | The rules file is unusable. |
+| `invalid-name` | `unit` breaks [Names](design-spec.md#names). |
+| `not-found` | `unit` is not a unit (`reason` `not-a-unit`). |
+| `unsupported-manifest` | The unit's manifest is unusable. |
+| `not-found` | `dir` doesn't exist or isn't a directory (`reason` `no-folder`). |
+| `inside-root` | `dir` is the working root or under it. |
+| `bound-elsewhere` | `dir` is bound to another unit, and `replace` wasn't given. |
+
+**Warnings:**
+
+| Kind | When |
+|---|---|
+| any of [`where`](#where)'s | Reading the unit back warned: `undefined-kind`, `missing-task`, `koan-failed`, `koan-warning`. |
+
+**Retry safety:**
+
+- After anything: safe. Each file is renamed into place whole, `.gitignore` first, so an error or a crash leaves the old marker, the new one, or a `.shingi/` with no `unit.json`, which no read takes for a marker and the next `bind` completes. Running it again writes the marker afresh.
+- After success: running it again writes the same marker, with the unit's `path` as it is then.
+
+### unbind
+
+Remove a folder's marker: its `.shingi/unit.json`, then any temp file a `bind` left, then `.shingi/.gitignore`, then `.shingi/` itself, and nothing else.
+
+**Kind:** marker.
+
+**Input schema:**
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "unbind-input",
+  "type": "object",
+  "required": ["dir"],
+  "properties": {
+    "dir": { "type": "string", "description": "The bound folder. The CLI passes its own current directory when none is given." }
+  },
+  "additionalProperties": false
+}
+```
+
+**Additional validation:** `dir` is absolute. It holds no NUL.
+
+**Preconditions:** `dir` holds a `.shingi/` folder.
+
+**Effects:**
+
+1. [Read the rules](#reading-the-rules).
+2. `dir`, resolved to its real path, holds a directory named `.shingi` (`not-found`, `reason` `no-marker`, `cwd` `dir`); a `dir` that doesn't exist holds none. Only that folder is looked in, never one above it. The marker isn't read: a foreign or unusable one, or a `.shingi/` with no `unit.json`, is removed like any other.
+3. Remove `unit.json`; then each temp file a `bind` left, `.unit.json.<random>.tmp` or `.gitignore.<random>.tmp`; then `.gitignore`, each one already gone not an error; then the `.shingi/` folder. Anything else in it is not removed, and leaves the folder in place: `io`, with the files already gone.
+
+**Output schema:**
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "unbind-output",
+  "type": "object",
+  "required": ["dir", "removed"],
+  "properties": {
+    "dir": { "type": "string", "description": "Absolute: the folder, at its real path." },
+    "removed": { "type": "array", "items": { "type": "string" }, "description": "Absolute: what was removed, in the order removed: unit.json, any temp files in name order, and .gitignore, each when it was there, then .shingi itself." }
+  },
+  "additionalProperties": false
+}
+```
+
+**Errors,** in this order:
+
+| Kind | When |
+|---|---|
+| `invalid-input` | `dir` missing, not a string, or not absolute, a NUL, or an unknown field. |
+| `invalid-rules`, `unsupported-format` | The rules file is unusable. |
+| `not-found` | `dir` holds no `.shingi/` (`reason` `no-marker`). |
+
+An `io` removing a file, or the folder, comes after what was removed before it.
+
+**Warnings:** none.
+
+**Retry safety:** safe, after any error and any unclear outcome: a file already gone is not an error, and running it again removes the rest. After success, running it again is `not-found`.

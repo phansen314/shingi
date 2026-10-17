@@ -144,7 +144,7 @@ Each line is a test. Together they are the hooks spec's rules, with nothing left
 - A `schema` of `2` is `unsupported-format`, with the hooks file's `path`; with other fields wrong too, it is still `unsupported-format`.
 - After each of those, nothing was changed: no working folder, and no task.
 - A problem in a disabled hook, and in another event's hooks, stops the command.
-- With a broken hooks file, `where`, `context`, `list`, `kinds`, and `version` still work.
+- With a broken hooks file, `where`, `context`, `list`, `kinds`, `version`, `bind`, and `unbind` still work (`bind` and `unbind` in `test_bind.py`).
 - A broken rules file and a broken hooks file together are `invalid-rules`; `invalid-input` is first of all; and a broken hooks file comes before `invalid-name`, `unknown-kind`, `unit-exists`, and `not-found`, in `create`, `adopt`, and `delete`, and before every entry's checks in `create-batch` (in `test_batch.py`).
 - A key with a `/` or `~` in it, in a hook as at the top, is escaped in its `field`.
 - A file nested too deeply to read is `invalid-hooks`, `syntax`.

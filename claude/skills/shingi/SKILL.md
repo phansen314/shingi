@@ -7,7 +7,7 @@ description: Find, create, and coordinate units of work with the shingi CLI — 
 
 `shingi` gives every piece of work one name and one place. A **unit** is a node in a hierarchy — a Jira story, the branches it is split into, a group of related work, a long-lived project — named by its **path**: `HOME-12345/foo-split/1-schema`. The same path names its tasks in koan (its **koan folder**, `/shingi/HOME-12345/foo-split/1-schema`) and its **working folder** on disk (`~/shingi-root/HOME-12345/foo-split/1-schema`). Every command prints **one line of JSON** and nothing else.
 
-Each unit's working folder holds two files: `uow.json`, its manifest (shingi's; never edit it), and `uow.md`, its notes (everyone's). Each unit has a **start task** and a **done task** in koan; its progress is theirs, never stored.
+Each unit's working folder holds two files: `uow.json`, its manifest (shingi's; never edit it), and `uow.md`, its notes (everyone's). Each unit has a **start task** and a **done task** in koan; its progress is theirs, never stored. A unit's worktree holds a `.shingi/` folder, its **marker**, which `shingi bind` writes so shingi finds the unit from there (shingi's too; never touch it).
 
 ## Before the first command
 
@@ -32,11 +32,11 @@ Branch on `.error.kind`, not the exit code. **Always tell the user about any `wa
 | 0 | Success, with or without warnings | — |
 | 1 | Operation error; see `.error.kind` | See below |
 | 2 | Usage error (bad command line) | Fix the command |
-| 3 or other | Outcome unknown (killed, stdout lost) | Reads and `delete`: rerun. `create`, `adopt`, and `create-batch`: **don't** rerun blind; see [When create fails](#when-create-or-adopt-fails). |
+| 3 or other | Outcome unknown (killed, stdout lost) | Reads, `delete`, `bind`, and `unbind`: rerun. `create`, `adopt`, and `create-batch`: **don't** rerun blind; see [When create fails](#when-create-or-adopt-fails). |
 
 Error kinds worth handling:
 
-- `not-found` — the path isn't a unit; `.error.details.missing` is the first folder on it that isn't one. From `where` with no path: `reason` `no-unit` or `outside-root` (you're not in a unit's working folder). From `adopt`: `reason` `no-folder`, there is nothing at the path to adopt.
+- `not-found` — the path isn't a unit; `.error.details.missing` is the first folder on it that isn't one. From `where` or `context` with no path: `reason` `no-unit` or `outside-root` (you're in neither a unit's working folder nor a bound worktree; a warning says why when a marker was there but unusable), or `unit-deleted` (this folder's marker, `.error.details.marker`, names a unit that no longer exists: tell the user, and offer `shingi unbind` on the folder, or `shingi bind <unit> <folder> --replace` to the unit it should name; `--replace` is needed, and this is the one confirmation). From `adopt`: `reason` `no-folder`, there is nothing at the path to adopt. From `bind`: `reason` `no-folder`, the folder to bind isn't one. From `unbind`: `reason` `no-marker`, the folder has no `.shingi/` — run it in the folder `bind` was given (the worktree's top), not a subdirectory.
 - `invalid-name` — a path segment breaks the name rule (below).
 - `parent-not-found` — create the parent first.
 - `after-not-found` — a unit named in `--after` isn't a unit (`.error.details.after`): create it first.
@@ -45,6 +45,9 @@ Error kinds worth handling:
 - `after-cycle` — a `create-batch`'s own `after`s can never all be met; `.error.details.cycle` is the units it runs through, each waiting on the next. A unit waits on everything under a unit it comes after, so `x` after `y` with `y/c` after `x` is one. Show the user the cycle and ask which `after` to drop.
 - `name-taken` — something is already at the name (`.error.details.entry`, `.type`): a folder, a file, or a name differing only in case. A folder of existing work is made a unit with `adopt`, not `create`.
 - `unit-exists` — it's already a unit: `shingi where` it.
+- `bound-elsewhere` — `bind`'s folder is already bound to another unit (`.error.details.unit`). Tell the user; rerun with `--replace` only once they confirm this folder is now the new unit's.
+- `inside-root` — `bind` was given a folder under `~/shingi-root`, which needs no marker. Bind the worktree, never a working folder.
+- `unsupported-manifest` (from `bind`) — the unit's `uow.json` can't be used, so there is no `id` to bind: tell the user.
 - `unknown-kind` — `.error.details.defined` lists the kinds there are.
 - `invalid-rules`, or `unsupported-format` whose `.error.details.path` doesn't end in `/hooks.json` — the user's rules file is wrong: `shingi.toml`, or the file `--config` named; report `.error.message` to the user.
 - `invalid-hooks`, or `unsupported-format` whose `.error.details.path` ends in `/hooks.json` — the user's hooks file is wrong, and `create`, `adopt`, `create-batch`, and `delete` change nothing until it is fixed; report `.error.message`, and `.error.details.problems`, to the user. Don't fix it yourself unasked.
@@ -62,16 +65,16 @@ shingi where HOME-12345/foo-split/1-schema      # a unit by its path
 
 `where` returns the unit: `path`, `id`, `kind`, `title`, `state` (`not-started`, `started`, `done`), `parent`, `children` (`{path, kind}`), `koan_folder`, `working_folder`, `notes_path`, and `start` and `done`, its two koan tasks (`id`, `readiness`, `created_at`, `completed_at`). Every filesystem path is absolute.
 
-- With no path, `where` works from anywhere in a unit's working folder, working material included. It does **not** work from a worktree: code lives outside the working root, `~/shingi-root`. A unit's notes say where its code is (below).
+- With no path, `where` works from anywhere in a unit's working folder, working material included, and from anywhere in a worktree bound to a unit with `shingi bind` (below), a subdirectory included. Elsewhere it is `not-found`. A unit's notes say where its code is (below).
 - **Read the unit's `uow.md` (`notes_path`)** for what it is for, what was decided, and where its code is.
 
-**To start work on a unit, run `shingi context`** (with its path, or from its working folder): one call for everything you need to begin:
+**To start work on a unit, run `shingi context`** (with its path, or from its working folder or bound worktree): one call for everything you need to begin:
 
 ```sh
 shingi context HOME-12345/foo-split/1-schema
 ```
 
-`.result.unit` is what `where` returns; `.result.ancestors` is the chain above it, top-level unit first (`path`, `id`, `kind`, `title`), so you know what your piece is for; `.result.notes` and `.result.parent_notes` are its and its parent's `uow.md`, whole; `.result.tasks` is every open task in its own koan folder (`id`, `title`, `readiness`, `blocking`, `tags`, `notes_path`), its start task among them until the unit is begun. `tasks` is `null` when koan failed or the manifest is unusable: the warnings say which. Its output holds two notes files, so it is larger than `where`'s; print it as is.
+`.result.unit` is what `where` returns; `.result.ancestors` is the chain above it, top-level unit first (`path`, `id`, `kind`, `title`), so you know what your piece is for; `.result.notes` and `.result.parent_notes` are its and its parent's `uow.md`, whole; `.result.tasks` is every open task in its own koan folder (`id`, `title`, `readiness`, `blocking`, `tags`, `notes_path`), its start task among them until the unit is begun; `.result.marker` is the marker the unit was found by (`null` when named by path or found under `~/shingi-root`). `tasks` is `null` when koan failed or the manifest is unusable: the warnings say which. Its output holds two notes files, so it is larger than `where`'s; print it as is.
 - Paths are exact and case-sensitive: `HOME-12345`, not `home-12345`; no leading or trailing `/`.
 
 The whole tree, or one subtree, in one call:
@@ -176,7 +179,14 @@ koan block "$done" --blockers "$(jq -r '.result.ids | join(",")' <<<"$out")"
 
 ## Setting a unit up: `## Code`
 
-A `branch` unit's setup task decides where its code is: the repository, the branch name (propose a slug, e.g. the path joined with `-`: `HOME-12345-foo-1-schema`, and let the user confirm), the base, and a worktree. Make the worktree with git, then **record it in the unit's `uow.md` under `## Code`, in exactly this form**:
+A `branch` unit's setup task decides where its code is: the repository, the branch name (propose a slug, e.g. the path joined with `-`: `HOME-12345-foo-1-schema`, and let the user confirm), the base, and a worktree. In one step: make the worktree with git and **bind it to the unit right away**:
+
+```sh
+git -C ~/repos/foo worktree add -b HOME-12345-foo-1-schema "$worktree" origin/main
+shingi bind HOME-12345/foo-split/1-schema "$worktree"
+```
+
+Then **record it in the unit's `uow.md` under `## Code`, in exactly this form**:
 
 ```markdown
 ## Code
@@ -190,6 +200,15 @@ Worktree: /home/you/repos/foo/.claude/worktrees/HOME-12345-foo-1-schema
 - One `## Code` section, its first lines these four, each `Key: value`, in this order: `Repository` (the repository's name, as its clone's folder is called), `Branch`, `Base` (what it branches from: `origin/main`, or the previous piece's branch in a stack), `Worktree` (absolute path). Prose may follow after a blank line.
 - Every coordinator finds a unit's code here, so keep the form exact, and update it when the branch or worktree changes.
 - A unit with no code has no `## Code` section. A `group` normally has none; its branches do.
+
+**The marker.** `bind` writes `.shingi/` at the top of the worktree: `unit.json`, naming the unit, and a `.gitignore` that makes git ignore the folder, so it never shows in `git status`, is never staged by `git add -A`, and doesn't stop `git worktree remove`. From then on, `shingi where` and `shingi context` with no path work anywhere in the worktree. `bind` asks for permission, like `create`.
+
+- **A marker covers everything beneath it,** until a nearer one: a `group` bound to a repository's checkout or a docs folder names that unit anywhere in it, and a worktree inside, once bound, is its own unit's. An unbound folder inside is the outer unit's: `shingi context`'s `.result.marker` shows which marker was used.
+- **Never write, edit, copy, or delete anything in `.shingi/` by hand.** It's shingi's, like `uow.json`; `bind` and `unbind` change it.
+- **Binding again is always safe,** and is the fix for every marker problem: rerunning a setup task binds again, refreshing the unit's path if it moved.
+- **A moved worktree** (`git worktree move`) carries a marker that names its old folder: it's foreign until bound again. Run `shingi bind <unit> <new worktree>` after moving one, and update `Worktree:`.
+- **`git clean -dX` (or `-dx`) removes the marker** like any ignored file. Bind again.
+- **Removing the worktree removes its marker.** `shingi unbind <worktree>` is only for a folder that stays and should no longer name the unit.
 
 ## Starting and finishing
 
@@ -209,9 +228,12 @@ koan frontier --folder <koan folder> --tags-all shingi-done --limit 20 --fields 
 
 **A coordinator** starts in a parent unit's working folder, `shingi where` for itself and `shingi list <its path>` for the picture: each unit's state, koan folder, and notes, whose `## Code` names the worktree to start a worker in. Its decisions are the shingi tasks on its frontier (`koan frontier --folder <its koan folder> --tags-all shingi --limit 20 --fields id,title,folder`): units ready to begin, and units ready to close. Closing a parent whose children are all done is its job.
 
-**A worker** starts in a worktree, where `shingi` can't find its unit from the current directory and `CLAUDE.md` is the repository's. So **spawn a worker with `run shingi context <its path>` in its first prompt**, and what it is asked to do. A worker:
+**A worker** starts in its unit's worktree, whose `CLAUDE.md` is the repository's. **Spawn a worker with plain `run shingi context` in its first prompt, never a path**, and what it is asked to do: its unit comes from its worktree's marker, which `bind` wrote and shingi checks, not from text in a prompt. A worker:
 
-- runs `shingi context <its path>` first, and reads what it returns before doing anything else;
+- runs `shingi context`, with no path, first, and reads what it returns before doing anything else;
+- **stops and says so when that is `not-found`** — the fix is `shingi bind <unit> <worktree>`, for the user or the coordinator — and never looks for its unit elsewhere: not in the prompt, the branch name, or `sesshin show self`;
+- goes on when it warns `stale-marker`, since the unit was found by its `id`, and reports the warning;
+- **checks it is in the right place:** `.result.marker` is in its own worktree (its folder or one above it, not a checkout holding it), and its unit's `## Code` `Worktree` is that folder. When either isn't, it is in an unbound worktree under another unit's marker: it stops and says so, and the fix is the same `shingi bind <unit> <worktree>`;
 - takes its next task from `koan frontier --folder <its koan folder> --recursive=false`: its own unit's, never a child's;
 - stops and says so when that task is its unit's start task: the unit hasn't been begun, and that isn't the worker's call;
 - marks no task tagged `shingi` but its own unit's done task, and that only when asked to finish the unit;
@@ -224,12 +246,12 @@ When sessions are started with sesshin, **tag each one with its unit's path, in 
 ```sh
 sesshin spawn --job 1-schema --extra '{"shingi-path":"HOME-12345/foo-split/1-schema"}' \
   --cwd <the worktree, from the unit's notes> \
-  --prompt 'Run shingi context HOME-12345/foo-split/1-schema, then do its next task.'
+  --prompt 'Run shingi context, then do its next task.'
 ```
 
 - **Never use the path as the job.** A job can't hold `/`, must be unique among live sessions, and a unit may have several sessions (a worker and a reviewer).
 - **The job is the unit's name,** its last segment, when sesshin will take it. Leave `--job` out, and use the sesshin ID it returns, when the name is all digits (`12345` always means a sesshin ID) or the spawn fails `job-taken` (two units share a name, or the unit already has a session).
-- **Still put the path in the prompt.** The tag is for finding sessions; the prompt is what the worker reads.
+- **Never put the path in the prompt.** A worker's unit is its worktree's marker. The tag is for finding a unit's sessions, and is set by whoever spawns the session, not written into its prompt.
 - **A unit's sessions**, live ones:
 
   ```sh
@@ -237,7 +259,8 @@ sesshin spawn --job 1-schema --extra '{"shingi-path":"HOME-12345/foo-split/1-sch
   ```
 
   Every session under a unit: `select((.extra["shingi-path"] // "") | startswith("HOME-12345/"))`.
-- **A session that doesn't know its unit** asks sesshin: `sesshin show self | jq -r '.result.session.extra["shingi-path"] // empty'`, then `shingi context` on what that prints. Nothing printed means it was never tagged: ask the user.
+- **A session in a worktree that doesn't know its unit** runs plain `shingi context`, and nothing else: on `not-found`, it stops and says so, as a worker does.
+- **A session started where no marker could be** (a home directory, a scratch folder) asks sesshin: `sesshin show self | jq -r '.result.session.extra["shingi-path"] // empty'`, then `shingi context` on what that prints. Nothing printed means it was never tagged: ask the user.
 - **Tag a session started by hand,** or one that moves to another unit, from inside it: `sesshin update self --extra-merge '{"shingi-path":"HOME-12345/research"}'`.
 
 The key is `shingi-path`, never `shingi-unit`: on a koan task, `shingi-unit` is the unit's `id`, a different thing.
@@ -268,6 +291,9 @@ Tell the user what you're undoing before you do it. A `koan-failed` with `.error
 | `parent-unlinked` | The parent's start or done task wasn't found, so that link was left out. | Tell the user; the link can be added by hand with `koan block`. |
 | `after-unlinked` | The done task of a unit named in `--after` (`.details.after`) wasn't found, so the new unit doesn't wait on it. | Tell the user; the link can be added by hand with `koan block`. |
 | `koan-failed`, `koan-warning` | koan failed, or warned (`.details`); tasks may be `null` or missing. | Tell the user; check koan (`koan info`, `koan doctor`). |
+| `foreign-marker` | The worktree's marker names another folder (`.details.dir`): the worktree was moved, or `.shingi/` was copied or committed. Nothing was found. | Tell the user. The fix is `shingi bind <unit> <this folder>`; if `.shingi/` was committed, it should be removed from the repository. |
+| `unsupported-marker` | The worktree's `.shingi/unit.json` can't be used (`.details.reason`). Nothing was found. | Tell the user; the fix is `shingi bind <unit> <this folder>`. Never edit it. |
+| `stale-marker` | The marker's unit has moved (`.details.stale`, its old path); it was found by its `id`, and is the unit reported. | Go on, and tell the user; `shingi bind <its new path> <this folder>` refreshes it. |
 | `hook-failed`, `hook-timeout` | One of the user's hooks failed, or ran past its timeout, after the command succeeded. `.details.command`, `.details.stderr`, and `.details.exit` (`hook-failed`) or `.details.timeout` (`hook-timeout`). | Tell the user which hook and what it printed. **Never run the command again**: its change is made, and `create` would be `unit-exists`. See [Hooks](#hooks). |
 
 ## Hooks
@@ -278,20 +304,22 @@ The user may list commands of their own in `hooks.json`, in shingi's config dire
 - **A hook never fails the command.** One that fails is a `hook-failed` or `hook-timeout` warning on a command that succeeded: `.result` is as good as with no hooks. Report it, and leave rerunning the hook to the user.
 - **A hooks file shingi can't use stops `create`, `adopt`, `create-batch`, and `delete`** before they change anything (`invalid-hooks`). Reads still work.
 - **Never write, change, or disable anything in `hooks.json` unasked,** and never work around a failing hook by making the unit some other way.
+- **`bind` and `unbind` run no hooks,** and work whatever state `hooks.json` is in.
 
 ## Moving and removing units
 
 There are no commands for these yet. **Only with the user's go-ahead**, naming what changes:
 
-- **Move**: `koan move-folder <old koan folder> --to <new>`, `mv` the working folder to the same new path, then `koan update <id> --title 'Start: <new path>'` (and `Done: …`) for the start and done tasks of it and every unit under it.
+- **Move**: `koan move-folder <old koan folder> --to <new>`, `mv` the working folder to the same new path, then `koan update <id> --title 'Start: <new path>'` (and `Done: …`) for the start and done tasks of it and every unit under it. Then `shingi bind <new path> <worktree>` for each worktree in their `## Code`, or each warns `stale-marker` until it is.
 - **Remove**: `koan delete-folder -r <koan folder>` (which also unblocks its parent's done task), then remove the working folder, then undo whatever its setup made (its worktree and branch).
 
 ## Hard rules
 
-- **Never create, edit, rename, or delete a `uow.json`.** It is shingi's. Edit `uow.md` freely: it is everyone's, and its first line, `# <title>`, is the unit's title.
+- **Never create, edit, rename, or delete a `uow.json`, or anything in a `.shingi/` folder.** They are shingi's: `bind` and `unbind` change `.shingi/`. Edit `uow.md` freely: it is everyone's, and its first line, `# <title>`, is the unit's title.
 - **Never write or change `shingi.toml` or `hooks.json` unasked.** They are the user's.
 - **Never compose a unit's koan folder or working folder** from the roots and the path: ask `shingi where`.
-- **Don't create or adopt units the user didn't ask for**; propose them. Both ask for permission anyway.
+- **Don't create or adopt units the user didn't ask for**; propose them. Both ask for permission anyway, as `bind` and `unbind` do.
+- **Spawn a worker with plain `run shingi context`, never a path,** and bind its worktree before spawning it.
 - **Never `delete` a unit unasked,** and never one whose work was done or cancelled: finish that one instead.
 - **Never mark a start task done unless asked to begin that unit, nor a parent's done task unless the user agrees to close it.**
 - **Don't put anything under `~/shingi-root` but units and their working material**: never a repository checkout. Code lives in worktrees elsewhere, named in `## Code`.
