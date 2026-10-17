@@ -137,7 +137,7 @@ Each line is a test. Together they are the hooks spec's rules, with nothing left
 
 **The hooks file** (`test_hooks_file.py`):
 
-- No hooks file: `create`, `adopt`, and `delete` behave as now, with no warnings.
+- No hooks file: `create`, `adopt`, `create-batch`, and `delete` behave as now, with no warnings.
 - Each problem is `invalid-hooks`, `invalid`, with its `field`, and several are reported together, sorted: an unknown top-level key, an unknown event, an unknown hook field, a missing `command`, an empty one, a `timeout` of `0`, of `true`, of `"10"`, and of `1e999`.
 - A file that isn't JSON, isn't an object, repeats a key, or holds `NaN` or `Infinity` is `invalid-hooks`, `syntax`.
 - A hooks file that is a directory is `invalid-hooks`, `unreadable`, with `code`.
@@ -145,7 +145,7 @@ Each line is a test. Together they are the hooks spec's rules, with nothing left
 - After each of those, nothing was changed: no working folder, and no task.
 - A problem in a disabled hook, and in another event's hooks, stops the command.
 - With a broken hooks file, `where`, `context`, `list`, `kinds`, and `version` still work.
-- A broken rules file and a broken hooks file together are `invalid-rules`; `invalid-input` is first of all; and a broken hooks file comes before `invalid-name`, `unknown-kind`, `unit-exists`, and `not-found`, in `create`, `adopt`, and `delete`.
+- A broken rules file and a broken hooks file together are `invalid-rules`; `invalid-input` is first of all; and a broken hooks file comes before `invalid-name`, `unknown-kind`, `unit-exists`, and `not-found`, in `create`, `adopt`, and `delete`, and before every entry's checks in `create-batch` (in `test_batch.py`).
 - A key with a `/` or `~` in it, in a hook as at the top, is escaped in its `field`.
 - A file nested too deeply to read is `invalid-hooks`, `syntax`.
 - `--config` naming a file elsewhere still runs the hooks at the usual location.

@@ -16,7 +16,7 @@ shingi version
 shingi kinds
 ```
 
-The tree is always in the same two places: units' working folders under `~/shingi-root`, and their tasks under the koan folder `/shingi`. Nothing needs setting up: the first `create` makes both. The kinds are `group` and `branch` unless the user has written a `shingi.toml` (in `~/.config/shingi/` on Linux, `~/Library/Application Support/shingi/` on macOS) defining their own. **Never write or change `shingi.toml` unasked**; it is the user's. So is `hooks.json`, beside it: the user's own commands, which `create`, `adopt`, and `delete` run once they have succeeded (see [Hooks](#hooks)). shingi also needs koan, set up and on `PATH`.
+The tree is always in the same two places: units' working folders under `~/shingi-root`, and their tasks under the koan folder `/shingi`. Nothing needs setting up: the first `create` makes both. The kinds are `group` and `branch` unless the user has written a `shingi.toml` (in `~/.config/shingi/` on Linux, `~/Library/Application Support/shingi/` on macOS) defining their own. **Never write or change `shingi.toml` unasked**; it is the user's. So is `hooks.json`, beside it: the user's own commands, which `create`, `adopt`, `create-batch`, and `delete` run once they have succeeded (see [Hooks](#hooks)). shingi also needs koan, set up and on `PATH`.
 
 ## Reading output
 
