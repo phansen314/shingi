@@ -79,7 +79,7 @@ class NoRulesFileTest(ShingiTestCase):
                          [("branch", []), ("group", ["group", "branch"])])
 
     def test_a_rules_file_replaces_them(self):
-        rules = Path(self.env["XDG_CONFIG_HOME"]) / "shingi" / "shingi.toml"
+        rules = self.hooks_file.with_name("shingi.toml")  # where shingi looks, on this platform
         rules.parent.mkdir(parents=True)
         rules.write_text("schema = 1\n[kind.story]\n")
         self.assertEqual([k["name"] for k in self.shingi("kinds")[1]["result"]["kinds"]], ["story"])

@@ -20,6 +20,7 @@ The global rules follow koan's CLI spec almost word for word, so one habit cover
   - Exit `3`: only its notice.
 
   The line is human-readable and not part of the contract. Control characters in it are escaped, so it stays one line. Callers read the envelope. A failure to write it is ignored and never changes the exit status.
+- **Nothing from a hook.** A [hook](hooks-spec.md) that `create`, `adopt`, or `delete` runs writes to neither stream of shingi's: its stdout is discarded, and its stderr is kept only for the `hook-failed` or `hook-timeout` warning. Hooks run before the envelope is written, so a command with slow hooks is slow to print.
 - **No traceback, ever.** An unexpected exception is an `internal` envelope, exit `1`; an interrupt is a [crash](#exit-codes), with no envelope and no traceback.
 - **Exception:** `--help` writes plain-text usage to stdout. It is not an operation.
 
@@ -106,14 +107,14 @@ A usage error is a problem with the command line itself: an unknown command or o
 - **One code for all operation errors.** Callers branch on the envelope's `kind`, not the exit code.
 - **Outcome unknown.** On `3` or any status outside `0`–`2`, the operation may already have taken effect. The caller follows the operation's **Retry safety** for a crash. For a read, rerunning is always safe; for [`create`](operations.md#create), [`adopt`](operations.md#adopt), and [`create-batch`](operations.md#create-batch), it is not, as it stands.
 - **Unwritable stdout.** When stdout cannot be written (a closed pipe, a full disk behind a redirect), shingi exits `3` with a notice on stderr. This applies even when nothing was run, e.g. a usage error with stdout closed.
-- **Interrupts are crashes.** An interrupt or termination signal (Ctrl-C, `kill`, a harness's timeout) ends shingi as the signal's default would: no envelope, no traceback, exit `128+n`. A koan call it was waiting on is koan's to finish or not.
+- **Interrupts are crashes.** An interrupt or termination signal (Ctrl-C, `kill`, a harness's timeout) ends shingi as the signal's default would: no envelope, no traceback, exit `128+n`. A koan call it was waiting on is koan's to finish or not. A [hook](hooks-spec.md#running-a-hook) it was running is not left so: on `SIGINT`, `SIGTERM`, or `SIGHUP`, shingi first kills the hook's process group, then dies of the same signal, and the hooks after it don't run. The command's change is already made. A shingi killed by `SIGKILL` kills nothing, and its hook runs on.
 
 ### Global options
 
 | Option | Meaning |
 |---|---|
 | `-i, --input <file>` | Read operation input from `<file>` (`-` for stdin). See [Input](#input). |
-| `--config <file>` | Read the rules, which define the kinds, from `<file>` instead of their [location](design-spec.md#locations), for tests and trials. It sets no root: those are fixed. Relative to the current directory; `~` is the shell's to expand. A missing or unreadable file is [`invalid-rules`](operations.md#error-kinds), its `details.path` the file's absolute path; only at the usual location does a missing file mean the built-in kinds. `version`, which reads no rules, accepts and ignores it. |
+| `--config <file>` | Read the rules, which define the kinds, from `<file>` instead of their [location](design-spec.md#locations), for tests and trials. It sets no root: those are fixed; nor does it move the hooks file, `hooks.json`, which stays at the usual location. Relative to the current directory; `~` is the shell's to expand. A missing or unreadable file is [`invalid-rules`](operations.md#error-kinds), its `details.path` the file's absolute path; only at the usual location does a missing file mean the built-in kinds. `version`, which reads no rules, accepts and ignores it. |
 | `-h, --help` | Print plain-text usage. |
 
 ## Command template
@@ -435,6 +436,7 @@ shingi delete HOME-12345/spike && shingi adopt HOME-12345/spike branch        # 
 
 - **Environment overrides.** No `SHINGI_*` variable sets a location or a rule (see [Locations](design-spec.md#locations)); `--config` is the one override, of the rules only, for one command.
 - **A root option.** The tree is at `~/shingi-root` and `/shingi`; a symlink at `~/shingi-root` keeps it elsewhere.
+- **Skipping hooks for one command.** No option or variable turns [hooks](hooks-spec.md) off for a single run; a hook is turned off in `hooks.json`, with `disabled`. Nor is there a command that runs one again: that is done [by hand](hooks-spec.md#by-hand).
 - **`init`.** Nothing needs setting up: with no rules file the built-in kinds apply, and the first `create` makes the roots.
 - **Filtering `list`.** `--open` is [future work](design-spec.md#filtering-list); until then, `jq`.
 - **Human-readable output and tree views.** The CLI is JSON only.

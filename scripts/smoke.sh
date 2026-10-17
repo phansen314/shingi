@@ -9,7 +9,7 @@
 set -uo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
-tmp=$(mktemp -d)
+tmp=$(cd "$(mktemp -d)" && pwd -P)  # its real path: macOS's /var is /private/var
 trap 'rm -rf "$tmp"' EXIT
 
 command -v jq >/dev/null || { echo "smoke.sh needs jq"; exit 1; }
@@ -23,6 +23,8 @@ if [[ -z ${SHINGI:-} ]]; then
 fi
 
 export HOME=$tmp/home XDG_CONFIG_HOME=$tmp/home/.config
+# Where shingi looks for shingi.toml and hooks.json: macOS ignores XDG_CONFIG_HOME.
+if [[ $(uname) == Darwin ]]; then config=$HOME/Library/Application\ Support/shingi; else config=$XDG_CONFIG_HOME/shingi; fi
 mkdir -p "$HOME"
 cd "$HOME"
 
@@ -79,11 +81,11 @@ expect "unwritable stdout is exit 3" '(exec 1>&-; "$SHINGI" version 2>/dev/null)
 
 echo "== rules"
 koan init
-mkdir -p "$XDG_CONFIG_HOME/shingi"
+mkdir -p "$config"
 check "no units before the first create" 0 '.result.units == []' -- list
-printf 'schema = 1\n[kind.group]\nsugests = []\n' >"$XDG_CONFIG_HOME/shingi/shingi.toml"
+printf 'schema = 1\n[kind.group]\nsugests = []\n' >"$config/shingi.toml"
 check "a typo in the rules" 1 '.error.details.problems == [{field: "kind.group.sugests", reason: "unknown field"}]' -- kinds
-cat >"$XDG_CONFIG_HOME/shingi/shingi.toml" <<'EOF'
+cat >"$config/shingi.toml" <<'EOF'
 schema = 1
 
 [kind.group]
@@ -242,9 +244,9 @@ cp "$tmp/b.json" "$HOME/shingi-root/HOME-1/b/uow.json"
 check "fixed" 0 '.result.kind == "branch" and .warnings == []' -- where HOME-1/b
 
 echo "== an undefined kind"
-rules=$XDG_CONFIG_HOME/shingi/shingi.toml
+rules=$config/shingi.toml
 cp "$rules" "$tmp/rules.toml"
-sed -i -e '/^\[kind.branch\]/,$d' -e 's/"group", "branch"/"group"/' "$rules"
+sed -e '/^\[kind.branch\]/,$d' -e 's/"group", "branch"/"group"/' "$tmp/rules.toml" >"$rules"  # not sed -i: BSD's takes an argument
 check "where warns and reports the kind as stored" 0 '.result.kind == "branch" and .warnings == [{kind: "undefined-kind", message: .warnings[0].message, unit: "HOME-1/a", ids: [], details: {kind: "branch"}}]' -- where HOME-1/a
 check "list warns once per unit" 0 '[.warnings[] | select(.kind == "undefined-kind") | .unit] == ["HOME-1/a", "HOME-1/b"]' -- list HOME-1
 check "create refuses it" 1 '.error.kind == "unknown-kind" and .error.details.defined == ["group"]' -- create HOME-3 branch
@@ -304,6 +306,17 @@ p_done=$(jq .result.done.id <<<"$("$SHINGI" where HOME-1)")
 check "its parent, which the top unit waited on" 0 '.result.unblocked == ['"$p_done"']' -- delete HOME-1/b
 check "nothing left over" 0 '[.result.units[].path] == ["HOME-1", "HOME-1/a"] and .warnings == []' -- list HOME-1
 check "adopt brings it back" 0 '.result.unit | .path == "HOME-1/b" and .kind == "group"' -- adopt HOME-1/b group
+
+echo "== hooks"
+cat >"$config/hooks.json" <<'EOF'
+{ "schema": 1, "hooks": { "create": [{ "command": "echo nope >&2; exit 3", "description": "smoke" }] } }
+EOF
+check "a failing hook is a warning, and create succeeds" 0 '.result.unit.path == "HOME-8" and [.warnings[] | .kind, .details.exit, .details.stderr] == ["hook-failed", 3, "nope\n"]' -- create HOME-8 group
+echo '{' >"$config/hooks.json"
+check "a broken hooks file stops create" 1 '.error.kind == "invalid-hooks"' -- create HOME-9 group
+expect "and made nothing" '[[ ! -e $HOME/shingi-root/HOME-9 ]]'
+check "reads ignore it" 0 '.ok' -- where HOME-8
+rm "$config/hooks.json"
 
 echo
 echo "$pass passed, $fail failed"
