@@ -62,6 +62,20 @@ def segment_problem(segment):
 
 def resolve(rules, path):
     """Raise not-found unless every folder on `path` exists, by its exact name, and holds a manifest."""
+    segments = path.split("/")
+    depth = unit_depth(rules, path)
+    if depth < len(segments):
+        missing = "/".join(segments[: depth + 1])
+        raise OperationError(
+            "not-found",
+            f"{path} is not a unit: {missing} is not",
+            {"unit": path, "missing": missing, "cwd": None, "reason": "not-a-unit"},
+        )
+
+
+def unit_depth(rules, path):
+    """How many of `path`'s leading segments are units: each folder down to there exists, by its
+    exact name, and holds a manifest."""
     folder = rules.working_root
     segments = path.split("/")
     for i, segment in enumerate(segments):
@@ -69,12 +83,8 @@ def resolve(rules, path):
         # The working root may not exist yet: then nothing is a unit.
         exact = folder.parent.is_dir() and segment in os.listdir(folder.parent)
         if not (exact and folder.is_dir() and (folder / MANIFEST).is_file()):
-            missing = "/".join(segments[: i + 1])
-            raise OperationError(
-                "not-found",
-                f"{path} is not a unit: {missing} is not",
-                {"unit": path, "missing": missing, "cwd": None, "reason": "not-a-unit"},
-            )
+            return i
+    return len(segments)
 
 
 def path_key(path):

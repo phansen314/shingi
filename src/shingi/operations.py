@@ -7,6 +7,7 @@ import errno
 import heapq
 import json
 import os
+import posixpath
 import uuid
 from importlib.metadata import version as package_version
 
@@ -226,10 +227,11 @@ def make_unit(inp, config, adopting):
     return result, warnings
 
 
-def check_unit(rules, inp, prefix, adopting=False, batch=frozenset()):
+def check_unit(rules, inp, prefix, adopting=False, batch=frozenset(), listings=None):
     """create's checks, its steps 1.2 to 1.6, of one new unit, changing nothing. `prefix` is where
     its input is: "" for create's, "/units/<n>" for a create-batch entry; `batch` is the paths of
-    the batch's units, counted as units though they aren't there yet."""
+    the batch's units, counted as units though they aren't there yet; `listings`, the parent
+    folders already listed, as check_entry keeps them."""
     path, kind = inp["path"], inp["kind"]
     after = inp.get("after", [])
     # From create-batch, an error about an entry says which, in `field`.
@@ -256,8 +258,10 @@ def check_unit(rules, inp, prefix, adopting=False, batch=frozenset()):
             raise OperationError(
                 "parent-not-found", f"parent {parent} is not a unit", {**at, "parent": parent, "missing": missing}
             )
-    if parent not in batch:  # a parent in the batch has no folder yet: its own check found that
-        check_entry(units.working_folder(rules, path), path, adopting, at)
+    # A parent in the batch has no folder yet: its own check found that, and so nothing beneath it
+    # can be in the way. Were that check ever to let a folder be there, this one must run again.
+    if parent not in batch:
+        check_entry(units.working_folder(rules, path), path, adopting, at, listings)
     for index, entry in enumerate(after):
         missing = missing_prefix(rules, entry, batch)
         if missing is not None:
@@ -282,13 +286,10 @@ def lineage(path, entry):
 def missing_prefix(rules, path, batch):
     """The shortest prefix of `path` that is neither in `batch` nor a unit, or None."""
     segments = path.split("/")
-    for i in range(1, len(segments) + 1):
+    # A prefix is a unit only when every prefix before it is one, so those that are come first.
+    for i in range(units.unit_depth(rules, path) + 1, len(segments) + 1):
         prefix = "/".join(segments[:i])
-        if prefix in batch:
-            continue
-        try:
-            units.resolve(rules, prefix)
-        except OperationError:
+        if prefix not in batch:
             return prefix
     return None
 
@@ -435,8 +436,9 @@ def make_batch(rules, given):
     check_duplicates(given)
     numbered = sorted(enumerate(given), key=lambda item: units.path_key(item[1]["path"]))
     batch = {entry["path"] for entry in given}
+    listings = {}  # each parent folder listed once, however many entries are made in it
     for index, entry in numbered:
-        check_unit(rules, entry, f"/units/{index}", batch=batch)
+        check_unit(rules, entry, f"/units/{index}", batch=batch, listings=listings)
     # From here a unit is known by its position n in path order.
     fields = [f"/units/{index}/path" for index, _ in numbered]
     entries = [entry for _, entry in numbered]
@@ -629,12 +631,8 @@ def batch_partial(rules, paths, made):
 def read_batch(rules, paths, warnings):
     """create-batch's step 6: every new unit, read back from one koan list of the deepest koan
     folder that holds them all."""
-    common = []
-    for segments in zip(*(path.split("/") for path in paths)):
-        if any(segment != segments[0] for segment in segments):
-            break
-        common.append(segments[0])
-    folder = units.koan_folder(rules, "/".join(common)) if common else rules.koan_root
+    common = posixpath.commonpath(paths)
+    folder = units.koan_folder(rules, common) if common else rules.koan_root
     try:
         tasks, koan_warnings = koan.list_tasks(folder, recursive=True)
     except OperationError as error:
@@ -675,10 +673,17 @@ def notes_text(title, notes):
     return text
 
 
-def check_entry(folder, path, adopting, at=None):
-    """Check what is at the new unit's name in its parent's folder (operations.md, create step 1.5)."""
+def check_entry(folder, path, adopting, at=None, listings=None):
+    """Check what is at the new unit's name in its parent's folder (operations.md, create step 1.5).
+    `listings` keeps each parent folder's entries, listed once, for the next entry made in it."""
     name = folder.name
-    siblings = sorted(folder.parent.iterdir() if folder.parent.exists() else [], key=lambda e: e.name.encode())  # no working root yet
+    listings = {} if listings is None else listings
+    if folder.parent not in listings:
+        # No working root yet: nothing is in it.
+        listings[folder.parent] = sorted(
+            folder.parent.iterdir() if folder.parent.exists() else [], key=lambda e: e.name.encode()
+        )
+    siblings = listings[folder.parent]
     # Only an entry named exactly so: on a case-insensitive filesystem, folder / MANIFEST finds another case's.
     if any(entry.name == name and (entry / units.MANIFEST).is_file() for entry in siblings):
         raise unit_exists(path, folder / units.MANIFEST, at)
