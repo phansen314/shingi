@@ -36,7 +36,7 @@ Branch on `.error.kind`, not the exit code. **Always tell the user about any `wa
 
 Error kinds worth handling:
 
-- `not-found` — the path isn't a unit; `.error.details.missing` is the first folder on it that isn't one. From `where` or `context` with no path: `reason` `no-unit` or `outside-root` (you're in neither a unit's working folder nor a bound worktree; a warning says why when a marker was there but unusable), or `unit-deleted` (this folder's marker, `.error.details.marker`, names a unit that no longer exists: tell the user, and offer `shingi unbind` on the folder, or `shingi bind <unit> <folder> --replace` to the unit it should name; `--replace` is needed, and this is the one confirmation). From `adopt`: `reason` `no-folder`, there is nothing at the path to adopt. From `bind`: `reason` `no-folder`, the folder to bind isn't one. From `unbind`: `reason` `no-marker`, the folder has no `.shingi/` — run it in the folder `bind` was given (the worktree's top), not a subdirectory.
+- `not-found` — the path isn't a unit; `.error.details.missing` is the first folder on it that isn't one. From `where` or `context` with no path: `reason` `no-unit` or `outside-root` (you're in neither a unit's working folder nor a bound worktree; a warning says why when a marker was there but unusable), or `unit-deleted` (this folder's marker, `.error.details.marker`, names a unit that no longer exists: tell the user, and offer `shingi unbind` on the folder, or `shingi bind <unit> <folder> --replace` to the unit it should name; the second needs `--replace`, so ask the user first). From `adopt`: `reason` `no-folder`, there is nothing at the path to adopt. From `bind`: `reason` `no-folder`, the folder to bind isn't one. From `unbind`: `reason` `no-marker`, the folder has no `.shingi/` — run it in the folder `bind` was given (the worktree's top), not a subdirectory.
 - `invalid-name` — a path segment breaks the name rule (below).
 - `parent-not-found` — create the parent first.
 - `after-not-found` — a unit named in `--after` isn't a unit (`.error.details.after`): create it first.
@@ -203,7 +203,7 @@ Worktree: /home/you/repos/foo/.claude/worktrees/HOME-12345-foo-1-schema
 
 **The marker.** `bind` writes `.shingi/` at the top of the worktree: `unit.json`, naming the unit, and a `.gitignore` that makes git ignore the folder, so it never shows in `git status`, is never staged by `git add -A`, and doesn't stop `git worktree remove`. From then on, `shingi where` and `shingi context` with no path work anywhere in the worktree. `bind` asks for permission, like `create`.
 
-- **A marker covers everything beneath it,** until a nearer one: a `group` bound to a repository's checkout or a docs folder names that unit anywhere in it, and a worktree inside, once bound, is its own unit's. An unbound folder inside is the outer unit's: `shingi context`'s `.result.marker` shows which marker was used.
+- **Bind worktrees, never a checkout that holds them.** A marker covers everything beneath it until a nearer one, so a bound checkout would hand its unit to every worktree inside it whose `bind` was missed. `shingi context`'s `.result.marker` shows which marker was used.
 - **Never write, edit, copy, or delete anything in `.shingi/` by hand.** It's shingi's, like `uow.json`; `bind` and `unbind` change it.
 - **Binding again is always safe,** and is the fix for every marker problem: rerunning a setup task binds again, refreshing the unit's path if it moved.
 - **A moved worktree** (`git worktree move`) carries a marker that names its old folder: it's foreign until bound again. Run `shingi bind <unit> <new worktree>` after moving one, and update `Worktree:`.
@@ -233,7 +233,13 @@ koan frontier --folder <koan folder> --tags-all shingi-done --limit 20 --fields 
 - runs `shingi context`, with no path, first, and reads what it returns before doing anything else;
 - **stops and says so when that is `not-found`** — the fix is `shingi bind <unit> <worktree>`, for the user or the coordinator — and never looks for its unit elsewhere: not in the prompt, the branch name, or `sesshin show self`;
 - goes on when it warns `stale-marker`, since the unit was found by its `id`, and reports the warning;
-- **checks it is in the right place:** `.result.marker` is in its own worktree (its folder or one above it, not a checkout holding it), and its unit's `## Code` `Worktree` is that folder. When either isn't, it is in an unbound worktree under another unit's marker: it stops and says so, and the fix is the same `shingi bind <unit> <worktree>`;
+- **checks the marker is its own worktree's:** the folder holding `.shingi/` is the worktree's top,
+
+  ```sh
+  [ "${marker%/.shingi/unit.json}" = "$(git rev-parse --show-toplevel)" ]   # marker: .result.marker
+  ```
+
+  When it isn't, the worktree was never bound and the marker is a folder's above it: the worker stops and says so, and the fix is the same `shingi bind <unit> <worktree>`;
 - takes its next task from `koan frontier --folder <its koan folder> --recursive=false`: its own unit's, never a child's;
 - stops and says so when that task is its unit's start task: the unit hasn't been begun, and that isn't the worker's call;
 - marks no task tagged `shingi` but its own unit's done task, and that only when asked to finish the unit;

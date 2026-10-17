@@ -59,7 +59,7 @@ class MarkerTest(ShingiTestCase):
                 self.assertIsNone(out["result"]["marker"])
 
     def test_an_unbound_folder_inside_shows_the_outer_marker(self):
-        # A group bound to a checkout covers an unbound worktree inside it; context says by which marker.
+        # An unbound folder beneath a bound one is the outer unit's; context says by which marker.
         inner = self.tree / "src" / "deep"
         code, out = self.shingi("context", cwd=inner)
         self.assertEqual(code, 0, out)
