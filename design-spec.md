@@ -386,6 +386,7 @@ Everything said of `create` holds for `adopt`, but for the working folder:
 - **A cycle in what the batch describes is refused** ([`after-cycle`](#problems)), and told as the units it runs through. The check is of the batch's own units alone, but of their tasks, with the links every unit has: a child's start task waits on its parent's, and a parent's done task on its children's. So `x` after `y` together with `y/c` after `x` is a cycle, though no unit comes after itself: `x` waits on `y`, which can't close before `y/c`, which waits on `x`. A cycle that runs through a unit already there is koan's to refuse, as for `create`, when the done tasks already there are linked, with every task made: one through links already in koan, and one the batch's own `after`s close, as `followup` after `implementation`, which is already there, with `implementation/x` after `followup`.
 - **One `koan create-batch` makes every task,** in every unit's koan folder, and koan checks all of it before writing any. Their order, and so their IDs, follows from the paths, never from the order of the entries: a unit's start task after its parent's and after the done task of every unit it comes after, its done task after its children's, and otherwise in path order. Then one `koan block` for each parent already there adds its new children's done tasks to its done task's blockers.
 - **Then the files:** every working folder and `uow.md`, parents first; then every manifest, each unit after its parent and after the units it comes after.
+- **Then the hooks,** once for the batch: the [`create-batch`](#hooks) event's, given every unit. Never `create`'s for each unit, so a batch of fifty runs a hook once, not fifty times; a hook that sets up a unit however it was made is listed under both events.
 
 `create-batch` never resumes, as `create` doesn't. One that fails after making something is an error with `partial`. Before the first manifest is written no unit exists, and `partial` lists everything made, to undo as `create`'s. After it, the units whose manifests are written exist, whole: `partial` names them in `units` and lists only what was made for the rest:
 
@@ -418,7 +419,7 @@ Corrected and made again: `delete`, then `adopt` the same folder with the right 
 
 ## Hooks
 
-A command of the user's own that shingi runs once [`create`](#create), [`adopt`](#adopt), or [`delete`](#delete) has succeeded, so what a kind, a machine, or a workflow needs set up happens without shingi knowing what it is: a template copied into a `branch` unit's working folder, a coordinator told. The [hooks spec](hooks-spec.md) defines them; in short:
+A command of the user's own that shingi runs once [`create`](#create), [`adopt`](#adopt), [`create-batch`](#create-batch), or [`delete`](#delete) has succeeded, so what a kind, a machine, or a workflow needs set up happens without shingi knowing what it is: a template copied into a `branch` unit's working folder, a coordinator told. The [hooks spec](hooks-spec.md) defines them; in short:
 
 - **Listed in `hooks.json`,** beside `shingi.toml` (see [Locations](#locations)), by the command that fires them. A hook isn't tied to a kind: it reads what the command did, and does nothing for a unit it doesn't care about.
 - **Told what the command did,** as JSON on stdin: its input, its result, and its warnings.
@@ -438,8 +439,8 @@ Every problem shingi reports, by name. An error means the command changed nothin
 | `usage` | all | The command line is malformed: an unknown command or option, a missing or extra argument, `-i` together with an argument or option that sets an input field, `--notes` together with `--notes-file`. |
 | `invalid-input` | all | The input is the wrong shape: `create -i` JSON that isn't an object of the right fields, or a `--title` that is empty or holds a line break. |
 | `invalid-rules` | all but `version` | The rules file is there and unreadable, or breaks [Fields](#fields); or the file `--config` names is missing. No rules file at the usual location is not an error: the built-in kinds apply. |
-| `unsupported-format` | all but `version` | The rules file's `schema` is one shingi doesn't support; or, from `create`, `adopt`, or `delete`, the hooks file's. |
-| `invalid-hooks` | `create`, `adopt`, `delete` | The hooks file is there and unreadable, isn't JSON, or breaks the hooks spec's [Fields](hooks-spec.md#fields). Nothing was changed. No hooks file is not an error: no hooks run. |
+| `unsupported-format` | all but `version` | The rules file's `schema` is one shingi doesn't support; or, from `create`, `adopt`, `create-batch`, or `delete`, the hooks file's. |
+| `invalid-hooks` | `create`, `adopt`, `create-batch`, `delete` | The hooks file is there and unreadable, isn't JSON, or breaks the hooks spec's [Fields](hooks-spec.md#fields). Nothing was changed. No hooks file is not an error: no hooks run. |
 | `not-found` | `where`, `context`, `list`, `adopt`, `delete` | The path named is not a unit: a folder on it doesn't exist, matches only ignoring case, or holds no `uow.json`. Names the first folder on the path that isn't a unit, so a unit cut off by an ancestor's missing manifest says which. From `where` or `context` with no unit, the current directory is in no unit, or outside the working root. From `adopt`, the folder to adopt doesn't exist. |
 | `invalid-name` | `where`, `context`, `list`, `create`, `adopt`, `delete` | A segment of the path, or of a path in `create`'s `after`, breaks [Names](#names), or, from `create` or `adopt`, the path is over 193 characters. Checked before the path is looked up, so no path reaches outside the working root. |
 | `parent-not-found` | `create`, `adopt` | The path has more than one segment, and its parent is not a unit. |
@@ -468,8 +469,8 @@ Every problem shingi reports, by name. An error means the command changed nothin
 | `after-unlinked` | `create` | The done task of a unit in `after` could not be found — missing, or that unit's `id` unreadable — so the link to it was left out, to be added by hand. |
 | `koan-failed` | `where`, `context`, `list`, `create`, `adopt` | koan could not be run, or returned an error; every task is `null`, and everything else is still reported. From `create` or `adopt`, only when reading the new unit back; anywhere earlier it is an error. |
 | `koan-warning` | `where`, `context`, `list`, `create`, `adopt` | A koan call warned, passed on in `details`. An unusable or unreadable task file can hide a start or done task, so while one is present, `missing-task`, `orphan-task`, `parent-unlinked`, or `after-unlinked` may be wrong. |
-| `hook-failed` | `create`, `adopt`, `delete` | A [hook](#hooks) exited nonzero, was killed, or couldn't be started (shingi unable to make the files it needs for one is that too). The command's change is made, and stays. |
-| `hook-timeout` | `create`, `adopt`, `delete` | A hook was still running when its timeout passed, and was killed. |
+| `hook-failed` | `create`, `adopt`, `create-batch`, `delete` | A [hook](#hooks) exited nonzero, was killed, or couldn't be started (shingi unable to make the files it needs for one is that too). The command's change is made, and stays. |
+| `hook-timeout` | `create`, `adopt`, `create-batch`, `delete` | A hook was still running when its timeout passed, and was killed. |
 
 ## Front ends
 
@@ -504,7 +505,7 @@ The same skill, linked into OpenCode's skills directory as koan's is, and the sa
 
 ## Format versions
 
-`shingi.toml`, `hooks.json`, and every `uow.json` carry `schema`, each versioned on its own. A rules file with a `schema` shingi doesn't support is an error for every command but `version`; a hooks file with one, for `create`, `adopt`, and `delete`; an unsupported manifest is a warning from `where` and `list`, which still report the unit (see [Problems](#problems)). Before 1.0, as koan's and sesshin's formats, a schema may change in place: a change bumps shingi's minor version, and its release notes say how to update existing files. Kinds are configuration: adding, changing, or removing one is never a schema change.
+`shingi.toml`, `hooks.json`, and every `uow.json` carry `schema`, each versioned on its own. A rules file with a `schema` shingi doesn't support is an error for every command but `version`; a hooks file with one, for `create`, `adopt`, `create-batch`, and `delete`; an unsupported manifest is a warning from `where` and `list`, which still report the unit (see [Problems](#problems)). Before 1.0, as koan's and sesshin's formats, a schema may change in place: a change bumps shingi's minor version, and its release notes say how to update existing files. Kinds are configuration: adding, changing, or removing one is never a schema change.
 
 ## Future work
 

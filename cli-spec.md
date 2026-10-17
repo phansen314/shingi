@@ -20,7 +20,7 @@ The global rules follow koan's CLI spec almost word for word, so one habit cover
   - Exit `3`: only its notice.
 
   The line is human-readable and not part of the contract. Control characters in it are escaped, so it stays one line. Callers read the envelope. A failure to write it is ignored and never changes the exit status.
-- **Nothing from a hook.** A [hook](hooks-spec.md) that `create`, `adopt`, or `delete` runs writes to neither stream of shingi's: its stdout is discarded, and its stderr is kept only for the `hook-failed` or `hook-timeout` warning. Hooks run before the envelope is written, so a command with slow hooks is slow to print.
+- **Nothing from a hook.** A [hook](hooks-spec.md) that `create`, `adopt`, `create-batch`, or `delete` runs writes to neither stream of shingi's: its stdout is discarded, and its stderr is kept only for the `hook-failed` or `hook-timeout` warning. Hooks run before the envelope is written, so a command with slow hooks is slow to print.
 - **No traceback, ever.** An unexpected exception is an `internal` envelope, exit `1`; an interrupt is a [crash](#exit-codes), with no envelope and no traceback.
 - **Exception:** `--help` writes plain-text usage to stdout. It is not an operation.
 

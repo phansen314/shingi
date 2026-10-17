@@ -47,7 +47,7 @@ Error kinds worth handling:
 - `unit-exists` — it's already a unit: `shingi where` it.
 - `unknown-kind` — `.error.details.defined` lists the kinds there are.
 - `invalid-rules`, or `unsupported-format` whose `.error.details.path` doesn't end in `/hooks.json` — the user's rules file is wrong: `shingi.toml`, or the file `--config` named; report `.error.message` to the user.
-- `invalid-hooks`, or `unsupported-format` whose `.error.details.path` ends in `/hooks.json` — the user's hooks file is wrong, and `create`, `adopt`, and `delete` change nothing until it is fixed; report `.error.message`, and `.error.details.problems`, to the user. Don't fix it yourself unasked.
+- `invalid-hooks`, or `unsupported-format` whose `.error.details.path` ends in `/hooks.json` — the user's hooks file is wrong, and `create`, `adopt`, `create-batch`, and `delete` change nothing until it is fixed; report `.error.message`, and `.error.details.problems`, to the user. Don't fix it yourself unasked.
 - `koan-failed` — koan failed; `.error.details.error` is koan's own error. See [When create fails](#when-create-or-adopt-fails).
 - `io`, `internal` — stop and report to the user, quoting `.error.message`.
 
@@ -272,11 +272,11 @@ Tell the user what you're undoing before you do it. A `koan-failed` with `.error
 
 ## Hooks
 
-The user may list commands of their own in `hooks.json`, in shingi's config directory, for shingi to run after a successful `create`, `adopt`, or `delete`: copying a template into a new unit's folder, telling a coordinator. They are the user's, as a git hook is.
+The user may list commands of their own in `hooks.json`, in shingi's config directory, for shingi to run after a successful `create`, `adopt`, `create-batch`, or `delete`: copying a template into a new unit's folder, telling a coordinator. They are the user's, as a git hook is.
 
-- **Your `create` runs them.** A hook may already have set a new unit up, so look at what is there (`shingi context <path>`) before adding to it.
+- **Your `create` or `create-batch` runs them.** A hook may already have set a new unit up, so look at what is there (`shingi context <path>`) before adding to it. A `create-batch` runs its own event's hooks, once, not `create`'s for each unit.
 - **A hook never fails the command.** One that fails is a `hook-failed` or `hook-timeout` warning on a command that succeeded: `.result` is as good as with no hooks. Report it, and leave rerunning the hook to the user.
-- **A hooks file shingi can't use stops `create`, `adopt`, and `delete`** before they change anything (`invalid-hooks`). Reads still work.
+- **A hooks file shingi can't use stops `create`, `adopt`, `create-batch`, and `delete`** before they change anything (`invalid-hooks`). Reads still work.
 - **Never write, change, or disable anything in `hooks.json` unasked,** and never work around a failing hook by making the unit some other way.
 
 ## Moving and removing units

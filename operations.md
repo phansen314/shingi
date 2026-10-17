@@ -156,7 +156,7 @@ A warning is a problem an operation told and went on past. It never changes the 
 | `after-unlinked` | The done task of a unit named in `after` could not be found, so that link was left out. | the new unit | `[]` | `after`: the unit named; `reason`: `unsupported-manifest` or `missing-task`. |
 | `koan-failed` | koan could not be run, or returned an error, while reading tasks; every task is `null`. | the unit read, or `null` from `list` | `[]` | As the [error](#error-kinds). |
 | `koan-warning` | A koan call succeeded with a warning of its own. An unusable task file can hide a start or done task, so while one is present, `missing-task`, `orphan-task`, `parent-unlinked`, or `after-unlinked` may be wrong. | `null` | the koan warning's `ids` | `call`; `warning`: koan's warning, verbatim. |
-| `hook-failed` | A hook exited nonzero, was killed by a signal, or couldn't be started (see [Running hooks](#running-hooks)). The operation's change is made, and stays. | the unit the operation was about; for `delete`, the unit deleted | `[]` | `event`; `index`: the hook's position in the event's list, from `0`, disabled hooks counted, so it is the index in the hooks file; `command`; `description`, or `null`; `exit`: its exit status, `128+n` when signal `n` killed it, as a shell reports it, or `null` when it couldn't be started; `stderr`: the last 2,048 bytes of its stderr, as UTF-8 with invalid bytes replaced; `""` when it wrote none, or couldn't be started. The `message` of one that couldn't be started names the OS error, since nothing else in the warning says why. Anything that goes wrong in shingi running a hook (a full disk, an unexpected error) is the same: `exit` `null`, the `message` naming the error, and the command succeeds. |
+| `hook-failed` | A hook exited nonzero, was killed by a signal, or couldn't be started (see [Running hooks](#running-hooks)). The operation's change is made, and stays. | the unit the operation was about; for `delete`, the unit deleted; for `create-batch`, `null` | `[]` | `event`; `index`: the hook's position in the event's list, from `0`, disabled hooks counted, so it is the index in the hooks file; `command`; `description`, or `null`; `exit`: its exit status, `128+n` when signal `n` killed it, as a shell reports it, or `null` when it couldn't be started; `stderr`: the last 2,048 bytes of its stderr, as UTF-8 with invalid bytes replaced; `""` when it wrote none, or couldn't be started. The `message` of one that couldn't be started names the OS error, since nothing else in the warning says why. Anything that goes wrong in shingi running a hook (a full disk, an unexpected error) is the same: `exit` `null`, the `message` naming the error, and the command succeeds. |
 | `hook-timeout` | A hook was still running when its timeout passed, and was killed. | as `hook-failed`'s | `[]` | `event`; `index`; `command`; `description`, each as `hook-failed`'s; `timeout`: the seconds it had; `stderr`, as `hook-failed`'s. |
 
 ### Warning schema
@@ -929,7 +929,7 @@ Make several units in one call: every unit's start and done tasks in one koan `c
 In what follows a unit is **in the batch** when an entry has its path, and **already there** when it is not in the batch and its path [resolves](#resolving-a-path).
 
 1. **Check,** changing nothing:
-   1. [Read the rules](#reading-the-rules). With no entries, nothing else is done: koan is not run, and the result is no units.
+   1. [Read the rules](#reading-the-rules), then [the hooks file](#running-hooks). With no entries, nothing else is checked or made: koan is not run, the result is no units, and the hooks run, as step 7 says.
    2. No two entries' paths are equal, exactly or ignoring ASCII case (`duplicate-path`). The pair reported is the first entry, in input order, whose path equals an earlier one's, with the earliest it equals.
    3. Each entry, taken in [path order](design-spec.md#terms), passes `create`'s checks, its steps 1.2 to 1.6 in their order. The error is the first entry's that fails one, and that entry's first. The checks are `create`'s, except:
       - **The parent** is in the batch, or already there (`parent-not-found`).
@@ -944,10 +944,11 @@ In what follows a unit is **in the batch** when an entry has its path, and **alr
    1. For each unit, in path order, so parents first: make its working folder and create its `uow.md`, as `create`'s steps 6.1 and 6.2.
    2. For each unit, in the order of the start tasks below: write its manifest, as `create`'s step 6.3. That order puts a unit after its parent and after every unit in its `after`, so at every moment the units that exist are linked only to units that exist.
 6. **Report:** run one koan `list`, [as `list` does](#finding-start-and-done-tasks), of the deepest koan folder that holds every unit in the batch — the koan folder of the longest path that is every entry's path or above it, or the koan root when there is none — and read each unit as [`where`](#where) does, its tasks matched from that one `list`. One call serves any batch; `where`'s way would take one for each unit. The warnings are the ones `where` would give for each unit: nothing is said of other units in that folder. A koan failure here is one `koan-failed` warning, its `unit` `null`, as [`list`](#list)'s, and every unit's tasks are `null`.
+7. **Run the hooks:** the `create-batch` event's, once for the whole batch, as [Running hooks](#running-hooks) says, adding a warning for each that fails or runs past its timeout. No `create` hook runs: a hook that should run for units however they are made is listed under both events.
 
 **The order of tasks.** Every unit in the batch has a start task and a done task. Within the batch, a start task waits on its parent's start task, when the parent is in the batch, and on the done task of every unit in its `after` that is in the batch; a done task waits on its own start task, and on the done task of each of its children in the batch. The order is built one task at a time: of the tasks not yet placed whose every wait is placed, the next is the first in path order of its unit, a unit's start task before its done task. So the order, and with it every task's ID, depends on the entries and not on the order they were given in. When tasks are left and none can be placed, the batch's links hold a cycle. One is found by starting from the first task left, in the same order, and going from each task to the first of its waits that is left, until a task comes up a second time; the cycle is the tasks from its first time to its second. `after-cycle` gives it as the paths of their units, tasks of one unit that follow each other told as one path: each unit waits on the next, and the last on the first.
 
-`create-batch` never removes or replaces anything, and never resumes. A failure after step 3 began leaves what it made, told in `partial`. Until the first manifest is linked no unit exists, and `partial` lists everything made. From then on the units whose manifests are linked exist, whole, and stay: `partial` names them in `units`, and lists only what was made for the others. Once every manifest is linked, an error from step 6 carries no `partial`.
+`create-batch` never removes or replaces anything, and never resumes. A failure after step 3 began leaves what it made, told in `partial`. Until the first manifest is linked no unit exists, and `partial` lists everything made. From then on the units whose manifests are linked exist, whole, and stay: `partial` names them in `units`, and lists only what was made for the others. Once every manifest is linked, an error from step 6 carries no `partial`. An error, with a `partial` or without, runs no hooks, though units may exist: their hooks are run [by hand](hooks-spec.md#by-hand).
 
 **Output schema:**
 
@@ -972,6 +973,7 @@ In what follows a unit is **in the batch** when an entry has its path, and **alr
 |---|---|
 | `invalid-input` | `units` missing, not an array, or over 500 entries; an unknown field; or any entry's problem, as `create`'s, its `field` under `/units/<n>`. |
 | `invalid-rules`, `unsupported-format` | The rules file is unusable. |
+| `invalid-hooks`, `unsupported-format` | The hooks file is unusable. |
 | `duplicate-path` | Two entries have the same path, exactly or ignoring ASCII case. |
 | `invalid-name`, `unknown-kind`, `after-lineage`, `parent-not-found`, `unit-exists`, `name-taken`, `after-not-found` | As `create`'s, for the first entry in path order that fails any of them, and its first; with `field` pointing into that entry. `unit-exists` and `name-taken` are also found while the files are written, with a `partial`. |
 | `after-cycle` | The batch's own links hold a cycle. |
@@ -989,6 +991,7 @@ In what follows a unit is **in the batch** when an entry has its path, and **alr
 | `koan-warning` | A koan call warned. |
 | any of [`where`](#where)'s | Reading a new unit back warned. |
 | `koan-failed` | koan failed reading the new units back; every unit's tasks are `null`. One, with `unit` `null`. |
+| `hook-failed`, `hook-timeout` | A hook failed, or ran past its timeout. Every unit is made. |
 
 **Partial:** an error after `create-batch` made something, and before every manifest is linked, carries what it made. Absent when nothing was made, and once every unit exists.
 
@@ -1028,8 +1031,8 @@ Undo it in this order: `koan delete-folder`, with `recursive`, each of `koan_fol
 - After a `koan-failed` whose `error` is `null`, from making the tasks or linking the done tasks already there: an unclear outcome, below.
 - After any other error without `partial`: safe. Nothing was made, or every unit exists and running it again is `unit-exists`.
 - After an error with `partial`: undo what it lists, drop the entries in `units`, and run it again. Run again as it stands, it fails on the first entry, in path order, that it made a unit or a folder for: `unit-exists` for a unit in `units`, `name-taken` for a folder it made. When it had made neither, it makes a second set of tasks, and the first are orphans that still block the done tasks they were added to.
-- After success: running it again is `unit-exists`.
-- After a crash or an unclear outcome: not safe as it stands. Run [`list`](#list) with no unit: the entries it reports as units were made, and are dropped; each `orphan-task` carrying a fresh `id` is what was left for the others, to delete before running it again.
+- After success: running it again is `unit-exists`, and runs no hooks. A hook that failed is run again [by hand](hooks-spec.md#by-hand), never by running `create-batch` again.
+- After a crash or an unclear outcome: not safe as it stands. Run [`list`](#list) with no unit: the entries it reports as units were made, and are dropped; each `orphan-task` carrying a fresh `id` is what was left for the others, to delete before running it again. When every entry is a unit, it succeeded, though a crash while its hooks ran leaves the hooks after it not run.
 
 ### delete
 

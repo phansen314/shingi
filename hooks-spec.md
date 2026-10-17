@@ -25,19 +25,22 @@ Let a user run their own commands when shingi changes the tree, so what a kind, 
 | Term | Meaning |
 |---|---|
 | **hook** | A command in the hooks file, run when an event fires. |
-| **event** | What a successful command fires, named after the command: `create`, `adopt`, `delete`. |
+| **event** | What a successful command fires, named after the command: `create`, `adopt`, `create-batch`, `delete`. |
 | **hooks file** | `hooks.json`, in shingi's config directory, beside `shingi.toml`. |
 | **payload** | The JSON a hook reads on stdin: the event, and the command's input, result, and warnings. |
 
 ## Events
 
-A command that succeeds fires one event, named after it, once, however much it changed. A command that fails fires none, even one that made something before failing (a `create` or `adopt` whose error carries `partial`, a `delete` that removed the tasks and not the manifest): its error says what it made, and whoever handles the error deals with it. Nor does a `create` or `adopt` that fails reading the new unit back, after the manifest is written: the unit exists with its hooks not run, and they are run [by hand](#by-hand). Reads never fire one.
+A command that succeeds fires one event, named after it, once, however much it changed. A command that fails fires none, even one that made something before failing (a `create` or `adopt` whose error carries `partial`, a `create-batch` whose `partial` names units that exist, a `delete` that removed the tasks and not the manifest): its error says what it made, and whoever handles the error deals with it. Nor does a `create`, `adopt`, or `create-batch` that fails reading the new units back, after the manifests are written: the units exist with their hooks not run, and they are run [by hand](#by-hand). Reads never fire one.
 
 | Event | Fired by | `input` | `result` |
 |---|---|---|---|
 | `create` | [`create`](operations.md#create) | `create`'s input | `create`'s output: `{ "unit" }` |
 | `adopt` | [`adopt`](operations.md#adopt) | `adopt`'s input | `adopt`'s output: `{ "unit" }` |
+| `create-batch` | [`create-batch`](operations.md#create-batch) | `create-batch`'s input | `create-batch`'s output: `{ "units" }` |
 | `delete` | [`delete`](operations.md#delete) | `delete`'s input | `delete`'s output |
+
+A `create-batch` fires `create-batch` alone, once, never `create` for each unit: a hook that sets up a new unit however it was made is listed under both, and reads `.result.unit` for one and `.result.units[]` for the other. An empty batch succeeds, and fires it with no units.
 
 An event's contract is its command's input and output schemas in [operations.md](operations.md): nothing is defined twice, and a change to a command's output is a change to its event, under the same [versioning](operations.md#versioning).
 
@@ -89,7 +92,7 @@ Every command that fires an event reads the hooks file after the rules and befor
 2. `schema` is present and an integer (`invalid`), and one shingi supports (`unsupported-format`).
 3. Every other field, as [Fields](#fields) says, each problem reported (`invalid`), disabled hooks' fields among them. A missing required field is reported at the field that is missing (`/hooks/create/0/command`).
 
-So a broken hooks file stops `create`, `adopt`, and `delete` before they change anything: a change never happens with its hooks skipped. Reads never read the file, so a broken one never hides the tree. A file that changes between this check and the hooks running is read once only, here: the hooks that run are the ones checked.
+So a broken hooks file stops `create`, `adopt`, `create-batch`, and `delete` before they change anything: a change never happens with its hooks skipped. Reads never read the file, so a broken one never hides the tree. A file that changes between this check and the hooks running is read once only, here: the hooks that run are the ones checked.
 
 ## The payload
 
@@ -145,6 +148,7 @@ shingi where <unit> | jq -c --arg version "$(shingi version | jq -r .result.vers
 
 - **`input`** has the two fields `create` and `adopt` always have. `title` and `notes` are absent, as when the command was given neither.
 - **`event`** is `adopt` for a unit that was adopted.
+- **A `create-batch` hook** is given a payload made the same way from `where` of each unit, `event` `create-batch`, `input` `{ "units": [{ "path", "kind" }, …] }`, and `result` `{ "units": [ … ] }`, in path order.
 - **A `delete` hook** can't be run this way: the unit is gone, and `where` can't find it. Its payload is made from the `delete`'s own envelope, whose `result` is the payload's, with `input` `{ "unit": <its path> }`.
 
 ## What a hook changes in the envelope
@@ -162,8 +166,8 @@ Each one's `unit`, `ids`, and `details`, and where it sorts among the command's 
 
 | Kind | Commands | When |
 |---|---|---|
-| `invalid-hooks` | `create`, `adopt`, `delete` | The hooks file can't be read, isn't JSON, or breaks [Fields](#fields). Nothing was changed. |
-| `unsupported-format` | `create`, `adopt`, `delete` | The hooks file's `schema` is an integer shingi doesn't support. Nothing was changed. |
+| `invalid-hooks` | `create`, `adopt`, `create-batch`, `delete` | The hooks file can't be read, isn't JSON, or breaks [Fields](#fields). Nothing was changed. |
+| `unsupported-format` | `create`, `adopt`, `create-batch`, `delete` | The hooks file's `schema` is an integer shingi doesn't support. Nothing was changed. |
 
 Their `details` are in operations.md's [Error kinds](operations.md#error-kinds), and where they come among a command's other errors, right after the rules file's, in its [Precedence](operations.md#precedence).
 
@@ -173,18 +177,19 @@ A hook is a command the user put in their own config, run with their permissions
 
 ## An example
 
-A `create` hook that gives every new `branch` unit a plan to fill in, copied from a template:
+A `create` and `create-batch` hook that gives every new `branch` unit a plan to fill in, copied from a template:
 
 ```sh
 #!/bin/sh
-# branch-setup.sh: give a new branch unit a plan.md, from a template.
-unit=$(jq -c .result.unit)
-[ "$(printf '%s' "$unit" | jq -r .kind)" = branch ] || exit 0
-plan=$(printf '%s' "$unit" | jq -r .working_folder)/plan.md
-[ -e "$plan" ] || cp ~/templates/branch-plan.md "$plan"      # never over one already there
+# branch-setup.sh: give each new branch unit a plan.md, from a template.
+jq -c '.result.unit // .result.units[]' | while read -r unit; do
+	[ "$(printf '%s' "$unit" | jq -r .kind)" = branch ] || continue
+	plan=$(printf '%s' "$unit" | jq -r .working_folder)/plan.md
+	[ -e "$plan" ] || cp ~/templates/branch-plan.md "$plan"      # never over one already there
+done
 ```
 
-It filters on its own input, does nothing for other kinds, and looks before it writes, so running it twice does no harm: the kind of care this spec leaves to the hook. Listed under `adopt` as well, it does the same for an adopted folder.
+It reads one unit from `create` and every unit from `create-batch`, filters on its own input, does nothing for other kinds, and looks before it writes, so running it twice does no harm: the kind of care this spec leaves to the hook. Listed under `adopt` as well, it does the same for an adopted folder.
 
 ## How it is tested
 
@@ -193,7 +198,7 @@ Against the real `shingi`, with a hooks file in a temporary config directory, on
 ## In the other specs
 
 - **design-spec.md:** a summary, [Hooks](design-spec.md#hooks); the hooks file in Locations; the new kinds in Problems. The `## Log` convention a hook follows is in [The notes file](design-spec.md#the-notes-file).
-- **operations.md:** the shared rule, [Running hooks](operations.md#running-hooks); the kinds' `details`, sorting, and precedence; and the hooks' place in `create`, `adopt`, and `delete`, with their Retry safety.
+- **operations.md:** the shared rule, [Running hooks](operations.md#running-hooks); the kinds' `details`, sorting, and precedence; and the hooks' place in `create`, `adopt`, `create-batch`, and `delete`, with their Retry safety.
 - **cli-spec.md:** that a hook writes nothing to shingi's output, in [Output](cli-spec.md#output); what an interrupt does to one, in [Exit codes](cli-spec.md#exit-codes); that `--config` doesn't move the hooks file; and, in Not included, that nothing skips hooks for one command.
 - **The skill:** report `hook-failed` and `hook-timeout` to the user, never run the command again for one, and never write `hooks.json` unasked.
 - **README:** a Hooks section, with the file's location and the example.

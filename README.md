@@ -50,7 +50,7 @@ description = "A throwaway experiment."
 
 ### Hooks
 
-To have shingi run a command of yours whenever a unit is created, adopted, or deleted, write `hooks.json` in the same config directory as `shingi.toml`:
+To have shingi run a command of yours whenever units are created, adopted, or deleted, write `hooks.json` in the same config directory as `shingi.toml`. Each command fires its own event, so `create-batch` runs a hook once for the whole batch, not `create`'s for each unit:
 
 ```json
 {
@@ -58,23 +58,27 @@ To have shingi run a command of yours whenever a unit is created, adopted, or de
   "hooks": {
     "create": [
       { "command": "~/bin/branch-setup.sh", "description": "Give a branch unit a plan.md from a template" }
+    ],
+    "create-batch": [
+      { "command": "~/bin/branch-setup.sh", "description": "The same, for each unit of a batch" }
     ]
   }
 }
 ```
 
-A hook runs once the command has succeeded, and reads what it did as JSON on stdin: its input, its result, and its warnings. This one gives every new `branch` unit a plan to fill in:
+A hook runs once the command has succeeded, and reads what it did as JSON on stdin: its input, its result, and its warnings. This one gives every new `branch` unit a plan to fill in, reading one unit from `create` and every unit from `create-batch`:
 
 ```sh
 #!/bin/sh
-# branch-setup.sh: give a new branch unit a plan.md, from a template.
-unit=$(jq -c .result.unit)
-[ "$(printf '%s' "$unit" | jq -r .kind)" = branch ] || exit 0
-plan=$(printf '%s' "$unit" | jq -r .working_folder)/plan.md
-[ -e "$plan" ] || cp ~/templates/branch-plan.md "$plan"      # never over one already there
+# branch-setup.sh: give each new branch unit a plan.md, from a template.
+jq -c '.result.unit // .result.units[]' | while read -r unit; do
+	[ "$(printf '%s' "$unit" | jq -r .kind)" = branch ] || continue
+	plan=$(printf '%s' "$unit" | jq -r .working_folder)/plan.md
+	[ -e "$plan" ] || cp ~/templates/branch-plan.md "$plan"      # never over one already there
+done
 ```
 
-A hook can't stop a command or change its result: one that fails, or runs past its timeout (10 seconds unless you set `timeout`), is a warning in the command's output. A `hooks.json` shingi can't use, unreadable or with a mistake in it, stops `create`, `adopt`, and `delete` before they change anything. An agent's `shingi create` runs your hooks too. See the [hooks spec](hooks-spec.md) for every field and rule.
+A hook can't stop a command or change its result: one that fails, or runs past its timeout (10 seconds unless you set `timeout`), is a warning in the command's output. A `hooks.json` shingi can't use, unreadable or with a mistake in it, stops `create`, `adopt`, `create-batch`, and `delete` before they change anything. An agent's `shingi create` runs your hooks too. See the [hooks spec](hooks-spec.md) for every field and rule.
 
 ## Use it from Claude Code and OpenCode
 
