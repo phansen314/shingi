@@ -47,7 +47,7 @@ class AdoptTest(ShingiTestCase):
         status, out = self.shingi("adopt", "HOME-2", "group")
         self.assertEqual(status, 1)
         self.assertEqual(out["error"]["kind"], "not-found")
-        self.assertEqual(out["error"]["details"], {"unit": "HOME-2", "missing": "HOME-2", "cwd": None, "reason": "no-folder"})
+        self.assertEqual(out["error"]["details"], {"unit": "HOME-2", "missing": "HOME-2", "cwd": None, "reason": "no-folder", "marker": None})
         self.assertFalse((self.working / "HOME-2").exists())
 
     def test_a_unit_is_unit_exists(self):

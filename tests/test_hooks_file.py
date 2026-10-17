@@ -153,7 +153,7 @@ class HooksFileTest(ShingiTestCase):
     def test_a_broken_hooks_file_leaves_the_reads_working(self):
         self.shingi("create", "HOME-1", "group")
         self.write_raw("{")
-        for args in (["where", "HOME-1"], ["context", "HOME-1"], ["list"], ["kinds"], ["version"]):
+        for args in (["where", "HOME-1"], ["context", "HOME-1"], ["list"], ["kinds"], ["version"]):  # bind and unbind: test_bind.py
             with self.subTest(args):
                 status, out = self.shingi(*args)
                 self.assertEqual(status, 0, out)

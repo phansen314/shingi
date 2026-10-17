@@ -1,5 +1,6 @@
 """Units on disk and their tasks in koan (see operations.md, Shared rules)."""
 
+import errno
 import json
 import os
 import re
@@ -13,10 +14,13 @@ UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 MANIFEST = "uow.json"
 NOTES = "uow.md"
 SCHEMAS = (1,)
+MARKER_DIR = ".shingi"  # a bound folder's marker (see design-spec.md, Markers)
+MARKER = "unit.json"
+IGNORE = ".gitignore"
 
 
-class UnusableManifest(Exception):
-    """A uow.json shingi can't use; `reason` is unreadable, unsupported-format, or corrupt."""
+class Unusable(Exception):
+    """A uow.json or marker shingi can't use; `reason` is unreadable, unsupported-format, or corrupt."""
 
     def __init__(self, reason):
         super().__init__(reason)
@@ -69,7 +73,7 @@ def resolve(rules, path):
         raise OperationError(
             "not-found",
             f"{path} is not a unit: {missing} is not",
-            {"unit": path, "missing": missing, "cwd": None, "reason": "not-a-unit"},
+            {"unit": path, "missing": missing, "cwd": None, "reason": "not-a-unit", "marker": None},
         )
 
 
@@ -92,11 +96,17 @@ def path_key(path):
     return [segment.encode() for segment in path.split("/")]
 
 
+def in_root(rules, real):
+    return real == rules.working_root or rules.working_root in real.parents
+
+
 def resolve_directory(rules, cwd):
-    """The path of the unit `cwd` is in: the deepest folder along it reached through units alone."""
+    """The path of the unit `cwd` is in, the warnings finding it gave, and the marker it was found by,
+    or None: in the working root, the deepest folder along it reached through units alone; outside
+    it, the unit its nearest marker binds."""
     real = Path(cwd).resolve()
-    if real != rules.working_root and rules.working_root not in real.parents:
-        raise no_unit(cwd, "outside-root", f"{cwd} is outside the working root")
+    if not in_root(rules, real):
+        return resolve_marker(rules, real, cwd)
     folder, segments = rules.working_root, []
     for segment in real.relative_to(rules.working_root).parts:
         folder = folder / segment
@@ -105,11 +115,68 @@ def resolve_directory(rules, cwd):
         segments.append(segment)
     if not segments:
         raise no_unit(cwd, "no-unit", f"{cwd} is in no unit")
-    return "/".join(segments)
+    return "/".join(segments), [], None
 
 
-def no_unit(cwd, reason, message):
-    return OperationError("not-found", message, {"unit": None, "missing": None, "cwd": cwd, "reason": reason})
+def no_unit(cwd, reason, message, marker=None, warnings=()):
+    return OperationError(
+        "not-found", message,
+        {"unit": None, "missing": None, "cwd": cwd, "reason": reason, "marker": marker},
+        warnings=warnings,
+    )
+
+
+def nearest_marker(real):
+    """The nearest folder at or above `real` holding .shingi/unit.json, or None."""
+    for folder in (real, *real.parents):
+        try:
+            os.lstat(folder / MARKER_DIR / MARKER)
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        except OSError as exc:
+            raise OperationError("io", f"{folder}: {exc.strerror}", {
+                "path": str(folder / MARKER_DIR / MARKER), "code": errno.errorcode.get(exc.errno),
+            })
+        return folder
+    return None
+
+
+def resolve_marker(rules, real, cwd):
+    """The unit the nearest marker above `real` binds, its warnings, and the marker's path; a marker
+    that can't be used is never passed for one further up (see operations.md, Resolving a directory)."""
+    outside = f"{cwd} is outside the working root"
+    folder = nearest_marker(real)
+    if folder is None:
+        raise no_unit(cwd, "outside-root", outside + ", with no marker above it")
+    path = folder / MARKER_DIR / MARKER
+    try:
+        marker = read_marker(folder)
+    except Unusable as exc:
+        raise no_unit(cwd, "outside-root", outside + f"; its marker {path} is {exc.reason}", warnings=[warning(
+            "unsupported-marker", f"{path} is {exc.reason}; bind the folder again",
+            None, details={"path": str(path), "reason": exc.reason},
+        )])
+    if marker["dir"] != str(folder):
+        raise no_unit(cwd, "outside-root", outside + f"; its marker {path} is foreign", warnings=[warning(
+            "foreign-marker", f"{path} names {marker['dir']}, not its own folder; bind the folder again",
+            None, details={"path": str(path), "dir": marker["dir"]},
+        )])
+    if unit_depth(rules, marker["path"]) == len(marker["path"].split("/")) and manifest_id(rules, marker["path"]) == marker["id"]:
+        return marker["path"], [], str(path)
+    for found in walk(rules):
+        if manifest_id(rules, found) == marker["id"]:
+            return found, [warning(
+                "stale-marker", f"{path} names {marker['path']}, but its unit is at {found}; bind the folder again",
+                found, details={"path": str(path), "stale": marker["path"]},
+            )], str(path)
+    raise no_unit(cwd, "unit-deleted", f"the unit {path} binds, {marker['path']}, was deleted", marker=str(path))
+
+
+def manifest_id(rules, path):
+    try:
+        return read_manifest(working_folder(rules, path))["id"]
+    except Unusable:
+        return None
 
 
 def koan_folder(rules, path):
@@ -120,27 +187,45 @@ def working_folder(rules, path):
     return rules.working_root / path
 
 
-def read_manifest(folder):
-    """The manifest in `folder`, or raise UnusableManifest (see operations.md, Reading a unit)."""
+def read_record(file, fields):
+    """The JSON object in `file`, with exactly `fields`, a supported `schema`, and a canonical
+    `id`; or raise Unusable."""
     try:
-        data = (folder / MANIFEST).read_bytes()
+        data = file.read_bytes()
     except OSError:
-        raise UnusableManifest("unreadable")
+        raise Unusable("unreadable")
     try:
-        manifest = json.loads(data.decode("utf-8"), object_pairs_hook=no_duplicate_keys)
+        record = json.loads(data.decode("utf-8"), object_pairs_hook=no_duplicate_keys)
     except ValueError:  # invalid UTF-8 or JSON, or a duplicate key
-        raise UnusableManifest("corrupt")
-    if not isinstance(manifest, dict) or manifest.keys() != {"schema", "id", "kind"}:
-        raise UnusableManifest("corrupt")
-    if type(manifest["schema"]) is not int:
-        raise UnusableManifest("corrupt")
-    if manifest["schema"] not in SCHEMAS:
-        raise UnusableManifest("unsupported-format")
-    if not isinstance(manifest["id"], str) or not UUID.fullmatch(manifest["id"]):
-        raise UnusableManifest("corrupt")
+        raise Unusable("corrupt")
+    if not isinstance(record, dict) or record.keys() != fields:
+        raise Unusable("corrupt")
+    if type(record["schema"]) is not int:
+        raise Unusable("corrupt")
+    if record["schema"] not in SCHEMAS:
+        raise Unusable("unsupported-format")
+    if not isinstance(record["id"], str) or not UUID.fullmatch(record["id"]):
+        raise Unusable("corrupt")
+    return record
+
+
+def read_manifest(folder):
+    """The manifest in `folder`, or raise Unusable (see operations.md, Reading a unit)."""
+    manifest = read_record(folder / MANIFEST, {"schema", "id", "kind"})
     if not isinstance(manifest["kind"], str):
-        raise UnusableManifest("corrupt")
+        raise Unusable("corrupt")
     return manifest
+
+
+def read_marker(folder):
+    """The marker in `folder`'s .shingi, or raise Unusable (see operations.md, Reading a marker)."""
+    marker = read_record(folder / MARKER_DIR / MARKER, {"schema", "id", "path", "dir"})
+    path = marker["path"]
+    if not isinstance(path, str) or any(segment_problem(s) for s in path.split("/")):
+        raise Unusable("corrupt")
+    if not isinstance(marker["dir"], str):
+        raise Unusable("corrupt")
+    return marker
 
 
 def no_duplicate_keys(pairs):
@@ -156,7 +241,7 @@ def check_manifest(rules, path):
     folder = working_folder(rules, path)
     try:
         manifest = read_manifest(folder)
-    except UnusableManifest as exc:
+    except Unusable as exc:
         return None, [warning(
             "unsupported-manifest",
             f"{path}: {MANIFEST} is {exc.reason}",
@@ -177,7 +262,7 @@ def kind_of(folder):
     """A child's kind, or None when its manifest is unusable."""
     try:
         return read_manifest(folder)["kind"]
-    except UnusableManifest:
+    except Unusable:
         return None
 
 
