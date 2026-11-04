@@ -7,7 +7,9 @@ here=$(cd "$(dirname "$0")" && pwd -P)
 # shellcheck source=recipes/lib.sh
 . "$here/../lib.sh"
 
-[ $# -ge 2 ] && [ $# -le 3 ] || usage "worktree.sh <folder> <branch> [dir]"
+if [ $# -lt 2 ] || [ $# -gt 3 ]; then
+	usage "worktree.sh <folder> <branch> [dir]"
+fi
 folder=$1
 branch=$2
 dir=${3:-}
