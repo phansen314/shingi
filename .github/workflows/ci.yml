@@ -43,3 +43,28 @@ jobs:
         run: uv run python -m unittest discover -s tests
       - name: Smoke test
         run: scripts/smoke.sh
+
+  recipes:
+    name: recipes (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+      # Pinned, so a koan release can't break these unannounced. The pin moves on purpose.
+      - name: Install koan
+        run: |
+          go install github.com/phansen314/koan/cmd/koan@v0.13.4
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Install shellcheck
+        if: runner.os == 'macOS'
+        run: brew install shellcheck
+      - name: shellcheck
+        run: shellcheck -x recipes/lib.sh recipes/*/*.sh tests/run.sh tests/lib.sh tests/test_*.sh
+      - name: Tests
+        run: tests/run.sh

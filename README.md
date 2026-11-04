@@ -1,5 +1,12 @@
 # shingi
 
+**shingi is becoming a repo of recipes:** scripts, each with a Claude Code skill, that compose [koan](https://github.com/phansen314/koan), [sesshin](https://github.com/phansen314/sesshin) and `jq`. See [recipes-spec.md](recipes-spec.md).
+
+- [`/shingi:claim <task>`](recipes/claim/README.md): claim a koan task and start on it in this session, with its notes loaded.
+- [`/shingi:start <task>`](recipes/start/README.md): load a task that's already claimed, with its notes.
+
+The rest of this page describes the units tool these replace, whose last release is `v0.4.0`. It's still in this tree, and goes in a later step. The shingi plugin no longer carries its skill.
+
 One name and one place for every piece of work. A **unit of work** is a node in a hierarchy (a story, the branches it is split into, a long-lived project), and its path names both its tasks in [koan](https://github.com/phansen314/koan) and its working folder on disk. shingi creates units with a start and a done task, and tells you or your agent where everything for one of them lives. Every command prints one line of JSON, in koan's envelope, so it is built to be driven by an agent such as Claude Code or OpenCode, with `jq` for anything a person reads.
 
 Linux and macOS only.

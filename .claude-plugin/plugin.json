@@ -1,6 +1,6 @@
 {
   "name": "shingi",
-  "description": "Name and place every piece of work with the shingi CLI: units of work, each with a koan folder for its tasks and a working folder for its notes.",
+  "description": "Recipes that compose koan, sesshin and jq: claim a koan task and start on it with its notes loaded.",
   "author": {
     "name": "phansen314"
   },
