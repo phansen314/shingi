@@ -59,12 +59,12 @@ jobs:
       # Pinned, so a koan release can't break these unannounced. The pin moves on purpose.
       - name: Install koan
         run: |
-          go install github.com/phansen314/koan/cmd/koan@v0.13.4
+          go install github.com/phansen314/koan/cmd/koan@v0.14.0
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Install shellcheck
         if: runner.os == 'macOS'
         run: brew install shellcheck
       - name: shellcheck
-        run: shellcheck -x recipes/lib.sh recipes/*/*.sh tests/run.sh tests/lib.sh tests/test_*.sh
+        run: shellcheck -x recipes/lib.sh recipes/*/*.sh tests/run.sh tests/lib.sh tests/stub/sesshin tests/test_*.sh
       - name: Tests
         run: tests/run.sh

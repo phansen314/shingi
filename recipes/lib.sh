@@ -6,6 +6,11 @@ refuse() {
 	printf "DON'T START: %s\n" "$1"
 }
 
+# stop MESSAGE: the first line when a recipe that starts no work couldn't do its job.
+stop() {
+	printf 'NOT DONE: %s\n' "$1"
+}
+
 # usage TEXT: bad usage is the one thing that exits non-zero (recipes-spec.md, principle 6).
 usage() {
 	printf 'usage: %s\n' "$1" >&2
@@ -33,24 +38,44 @@ version_at_least() {
 	[ "$h3" -ge "$w3" ]
 }
 
-# require_koan: true when jq and a new enough koan are here; else prints what isn't.
+# require_koan: true when jq and a new enough koan are here; else prints what isn't,
+# through refuse, or through the function a recipe that starts no work names in $say.
 require_koan() {
 	local version
 	if ! command -v jq >/dev/null; then
-		refuse "jq isn't on PATH. Tell the user to install it."
+		"${say:-refuse}" "jq isn't on PATH. Tell the user to install it."
 		return 1
 	fi
 	if ! command -v koan >/dev/null; then
-		refuse "koan isn't on PATH. Tell the user to install v0.13.0 or later."
+		"${say:-refuse}" "koan isn't on PATH. Tell the user to install v0.13.0 or later."
 		return 1
 	fi
 	version=$(koan version 2>/dev/null | jq -r '.result.version // empty' 2>/dev/null)
 	if [ -z "$version" ]; then
-		refuse "koan version didn't report a version. Tell the user."
+		"${say:-refuse}" "koan version didn't report a version. Tell the user."
 		return 1
 	fi
 	if ! version_at_least "$version" 0.13.0; then
-		refuse "this needs koan v0.13.0 or later, and found $version. Tell the user."
+		"${say:-refuse}" "this needs koan v0.13.0 or later, and found $version. Tell the user."
+		return 1
+	fi
+}
+
+# require_sesshin: true when a new enough sesshin is here; else prints what isn't.
+# Call it after require_koan, which checks jq.
+require_sesshin() {
+	local version
+	if ! command -v sesshin >/dev/null; then
+		"${say:-refuse}" "sesshin isn't on PATH. Tell the user to install v1.2.0 or later."
+		return 1
+	fi
+	version=$(sesshin version 2>/dev/null | jq -r '.result.version // empty' 2>/dev/null)
+	if [ -z "$version" ]; then
+		"${say:-refuse}" "sesshin version didn't report a version. Tell the user."
+		return 1
+	fi
+	if ! version_at_least "$version" 1.2.0; then
+		"${say:-refuse}" "this needs sesshin v1.2.0 or later, and found $version. Tell the user."
 		return 1
 	fi
 }

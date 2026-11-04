@@ -6,7 +6,13 @@ repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 start=$repo/recipes/start/start.sh
 # shellcheck disable=SC2034
 claim=$repo/recipes/claim/claim.sh
-scratch=$(mktemp -d)
+# shellcheck disable=SC2034
+dispatch=$repo/recipes/dispatch/dispatch.sh
+# shellcheck disable=SC2034
+worktree=$repo/recipes/worktree/worktree.sh
+# shellcheck disable=SC2034
+stale=$repo/recipes/stale-claims/stale-claims.sh
+scratch=$(cd "$(mktemp -d)" && pwd -P)
 trap 'rm -rf "$scratch"' EXIT
 real_path=$PATH
 tests=0
@@ -20,7 +26,13 @@ fresh() {
 	export PATH=$real_path
 	unset SESSHIN_JOB
 	mkdir -p "$HOME"
+	cd "$HOME" || exit 1
 	koan init >/dev/null
+}
+
+# stub_sesshin: the fake sesshin, first on PATH, for this test.
+stub_sesshin() {
+	export PATH=$repo/tests/stub:$PATH
 }
 
 # new_task TITLE [KOAN-TASK-CREATE-OPTIONS...]: prints the ID.
@@ -61,6 +73,15 @@ lacks() {
 
 exit_is() {
 	[ "$rc" -eq "$1" ] || fail "exit $rc, expected $1"
+}
+
+# stopped: exit 0, and a first line that says it wasn't done.
+stopped() {
+	exit_is 0
+	case $out in
+	"NOT DONE:"*) ;;
+	*) fail "expected a first line beginning NOT DONE:" ;;
+	esac
 }
 
 # refused: exit 0, and a first line that says don't start.

@@ -34,7 +34,7 @@ field() {
 ref=$(field .ref)
 
 if [ "$(field .claim)" = null ]; then
-	refuse "$ref isn't claimed. Tell the user, who can run /shingi:claim $id."
+	refuse "$ref isn't claimed. Tell the user, who can run /shingi:claim $id, which claims it and starts work on it in one step."
 	exit 0
 fi
 

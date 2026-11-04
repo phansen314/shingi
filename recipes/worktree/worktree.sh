@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Adds a git worktree for a branch and binds it to a koan folder, together.
+# See README.md beside this file. Refusals exit 0 and begin NOT DONE.
+set -uo pipefail
+
+here=$(cd "$(dirname "$0")" && pwd -P)
+# shellcheck source=recipes/lib.sh
+. "$here/../lib.sh"
+
+[ $# -ge 2 ] && [ $# -le 3 ] || usage "worktree.sh <folder> <branch> [dir]"
+folder=$1
+branch=$2
+dir=${3:-}
+
+say=stop
+require_koan || exit 0
+if ! command -v git >/dev/null; then
+	stop "git isn't on PATH. Tell the user."
+	exit 0
+fi
+
+if ! common=$(git rev-parse --git-common-dir 2>/dev/null); then
+	stop "this isn't a git repository. Run it from the repository the worktree is for."
+	exit 0
+fi
+
+if ! where=$(koan where "$folder" 2>/dev/null); then
+	stop "koan has no folder $folder. Tell the user; nothing was made."
+	printf '%s\n' "$where"
+	exit 0
+fi
+if [ "$(jq -r .result.kind <<<"$where")" != folder ]; then
+	stop "$folder isn't a folder. Tell the user; nothing was made."
+	exit 0
+fi
+
+# By default a sibling of the checkout: ~/code/api and feature/x make ~/code/api-feature-x.
+if [ -z "$dir" ]; then
+	checkout=$(cd "$common/.." && pwd -P)
+	dir=$checkout-$(printf '%s' "$branch" | tr / -)
+fi
+if [ -e "$dir" ]; then
+	stop "$dir already exists. Tell the user; nothing was made."
+	exit 0
+fi
+
+made_branch=
+if git show-ref --verify --quiet "refs/heads/$branch"; then
+	added=$(git worktree add "$dir" "$branch" 2>&1)
+	status=$?
+else
+	added=$(git worktree add -b "$branch" "$dir" 2>&1)
+	status=$?
+	made_branch=1
+fi
+if [ "$status" -ne 0 ]; then
+	stop "git couldn't add the worktree. Tell the user, quoting git's message."
+	printf '%s\n' "$added"
+	exit 0
+fi
+dir=$(cd "$dir" && pwd -P)
+
+if ! bound=$(koan bind "$folder" "$dir" 2>/dev/null); then
+	git worktree remove --force "$dir" >/dev/null 2>&1
+	if [ -n "$made_branch" ]; then
+		git branch -D "$branch" >/dev/null 2>&1
+	fi
+	stop "koan couldn't bind the worktree, so it was removed again. Tell the user, quoting koan's message."
+	printf '%s\n' "$bound"
+	exit 0
+fi
+
+printf 'Worktree at %s, on %s, bound to %s.\n\n' "$dir" "$branch" "$(jq -r .result.ref <<<"$where")"
+(cd "$dir" && koan context --here --limit 20 2>/dev/null)

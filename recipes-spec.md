@@ -1,14 +1,16 @@
 # Feature: shingi as a repo of recipes
 
-**Status:** `start` and `claim` are built. `dispatch` and removing the Python tool come next. Written against shingi `main` at v0.4.0, koan v0.13.4 and sesshin 1.2.1.
+**Status:** all the recipes are built: `start`, `claim`, `dispatch`, `worktree` and `stale-claims`. Removing the Python tool comes next. Written against shingi `main` at v0.4.0, koan v0.14.0 and sesshin 1.2.1.
 
 ## Summary
 
-shingi stops being a CLI and becomes a small repo of **recipes**: scripts, with a Claude Code skill wrapped around each, that compose [koan](https://github.com/phansen314/koan), [sesshin](https://github.com/phansen314/sesshin) and `jq` through their JSON output. It has no binary and no data of its own. The first three recipes:
+shingi stops being a CLI and becomes a small repo of **recipes**: scripts, with a Claude Code skill wrapped around each, that compose [koan](https://github.com/phansen314/koan), [sesshin](https://github.com/phansen314/sesshin) and `jq` through their JSON output. It has no binary and no data of its own. The recipes:
 
 - `/shingi:claim <task>`: claim a task and start on it **in this session**, with its notes loaded;
 - `/shingi:start <task>`: load a task that's already claimed, its notes included;
-- `/shingi:dispatch <task> [dir]`: claim a task and start **a new session** for it through sesshin.
+- `/shingi:dispatch <task> [dir]`: claim a task and start **a new session** for it through sesshin;
+- `/shingi:worktree <folder> <branch> [dir]`: add a git worktree and bind it to a koan folder;
+- `/shingi:stale-claims`: list claims whose session is gone.
 
 ## Why
 
@@ -24,7 +26,7 @@ shingi stops being a CLI and becomes a small repo of **recipes**: scripts, with 
 3. **shingi owns the links it makes.** Following "one program, one namespace", a recipe that ties a claim to a session writes under `shingi`: `{"shingi":{"job":"koan-42"}}` on the koan claim. Never a `sesshin` key in koan, or a `koan` key in sesshin. A link no recipe reads isn't written.
 4. **Skills wrap scripts, never the reverse.** A skill is a one-line `!` call to its recipe's script plus a few sentences telling the session what to do with the output. A person, a cron job or another harness can run the same script without Claude Code.
 5. **Every recipe states what it needs and what it writes:** the tools and minimum versions, and every `extra` key it reads or writes. Its script checks the versions first, and names the missing tool plainly.
-6. **Scripts tell, they don't abort.** A skill's `!` command aborts the whole invocation on a non-zero exit. So a script that runs from a skill exits 0 when koan or sesshin refuses, and prints what happened. A refusal's first line begins `DON'T START:`, which is what the skills look for. A non-zero exit is kept for the script's own bugs and bad usage.
+6. **Scripts tell, they don't abort.** A skill's `!` command aborts the whole invocation on a non-zero exit. So a script that runs from a skill exits 0 when koan or sesshin refuses, and prints what happened. A refusal's first line begins `DON'T START:`, which is what the skills look for, or `NOT DONE:` in a recipe that starts no work. A non-zero exit is kept for the script's own bugs and bad usage.
 7. **Shell and `jq` only.** POSIX tools, bash, and `jq`. Every script passes shellcheck.
 
 ## Layout
@@ -37,15 +39,19 @@ recipes/
   start/     README.md  start.sh
   claim/     README.md  claim.sh
   dispatch/  README.md  dispatch.sh
+  worktree/  README.md  worktree.sh
+  stale-claims/  README.md  stale-claims.sh
 claude/skills/
   start/SKILL.md                  → /shingi:start <task>
   claim/SKILL.md                  → /shingi:claim <task>
   dispatch/SKILL.md               → /shingi:dispatch <task> [dir]
+  worktree/SKILL.md               → /shingi:worktree <folder> <branch> [dir]
+  stale-claims/SKILL.md           → /shingi:stale-claims
 tests/
   run.sh                          runs every test file
   lib.sh                          a scratch HOME per test, assertions
   stub/sesshin                    a fake sesshin: records its arguments, prints canned JSON
-  test_start.sh  test_claim.sh  test_dispatch.sh
+  test_*.sh                       one file per recipe
 .claude-plugin/                   plugin and marketplace, as today, with new descriptions
 .github/workflows/ci.yml          shellcheck and tests, on Linux and macOS
 ```
@@ -151,13 +157,15 @@ Report to the user what happened above, in a sentence or two. Don't start work o
 
 ## Tests
 
-- **Real koan, scratch HOME.** Every test gets its own `HOME`, runs `koan init`, and builds the tasks it needs. CI installs koan at a pinned tag (`go install github.com/phansen314/koan/cmd/koan@v0.13.4`), so a koan release can't break the tests unannounced. The pin moves on purpose.
+- **Real koan, scratch HOME.** Every test gets its own `HOME`, runs `koan init`, and builds the tasks it needs. CI installs koan at a pinned tag (`go install github.com/phansen314/koan/cmd/koan@v0.14.0`), so a koan release can't break the tests unannounced. The pin moves on purpose.
 - **A stub sesshin, with `dispatch`.** `spawn` needs a real terminal, so `tests/stub/sesshin`, put first on `PATH`, records its arguments to a file and prints JSON that each test chooses: success, `job-taken`, `launch-failed`, `launch-unknown`, a `not-started` warning. `version` is stubbed too.
 - **What they check:**
   - `start`: unclaimed, claimed, held by another job, blocked, a folder's ID, missing notes, notes over the limit, a task in the root, koan missing or too old.
   - `claim`: success, its `extra`, `claimed`, `already-complete`, not found, blocked.
   - `dispatch`: every branch of step 6, with the claim afterwards held or undone as the step says; the exact `spawn` arguments, with `--cwd` only when `[dir]` is given; options after `--` passed through; a blocked task opening no window.
-  - Every script exits 0 on every refusal, and prints the refused tool's envelope.
+  - `worktree`: a new and an existing branch, the default and an explicit directory, each refusal making nothing, and a refused bind removing what was made.
+  - `stale-claims`: live, gone and no job, and that it changes nothing.
+  - Every script that a skill runs exits 0 on every refusal, and prints the refused tool's envelope.
 - **shellcheck** on every script, in CI.
 - CI on Linux and macOS, reusing today's workflow's action pins.
 
@@ -181,13 +189,18 @@ Not yet seen: a real `sesshin spawn`, Claude's workspace-trust dialog in front o
 
 ## Build order
 
-In vertical slices: `start` and `claim`, tried in real use; then `dispatch`; and removing the Python tool as its own step.
+In vertical slices: the recipes, then removing the Python tool as its own step.
+
+## The smaller recipes
+
+Each recipe's README states its usage, needs and writes in full.
+
+- **worktree:** `git worktree add` and `koan bind` together, with `koan context --here` to finish. A refused bind removes the worktree again, and the branch if this run made it. Its path goes to `dispatch`.
+- **stale-claims:** claims whose `extra.shingi.job` names no live sesshin session, joined with `jq` from `koan task list --claimed` and `sesshin list`, for the user to decide on unclaiming. Claims with no job can't be judged, and are listed apart. It changes nothing.
 
 ## Later recipes
 
-Each in the same shape, once its pieces exist:
-- **worktree:** `git worktree add` and `koan bind` together, with `koan context --here` to finish. The natural next one, since `dispatch` is for parallel work.
-- **stale-claims:** claims whose `extra.shingi.job` names no live sesshin session, joined with `jq` from `koan task list --claimed` and `sesshin list`, for the user to decide on unclaiming.
+Not built. Each in the same shape, if wanted after real use:
 - **parking:** the `waiting` and `deferred` conventions.
 - **reminders:** a cron-driven runner that removes `deferred` when a date under `extra.shingi.remind` passes.
 
@@ -199,7 +212,7 @@ Each in the same shape, once its pieces exist:
 
 ## Done when
 
-- The three recipes behave as above.
+- The recipes behave as above.
 - `tests/run.sh` passes on Linux and macOS, and shellcheck is clean.
 - Each recipe's README states its needs and writes.
 - From a real session, `/shingi:claim`, `/shingi:start` and `/shingi:dispatch` each work end to end against your own koan root and kitty or iTerm2.

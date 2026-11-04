@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# A fake sesshin. spawn needs a real terminal, so this records spawn's arguments,
+# one a line, to $HOME/spawn-args, and prints what a test put in $HOME/spawn-out,
+# exiting with $HOME/spawn-rc. list prints $HOME/list-out.
+set -u
+
+case ${1:-} in
+version)
+	default='{"ok":true,"result":{"version":"v1.2.1"},"warnings":[]}'
+	printf '%s\n' "${STUB_SESSHIN_VERSION:-$default}"
+	;;
+list)
+	cat "$HOME/list-out" 2>/dev/null || printf '%s\n' '{"ok":true,"result":{"sessions":[],"total":0,"truncated":false},"warnings":[]}'
+	;;
+spawn)
+	shift
+	printf '%s\n' "$@" >"$HOME/spawn-args"
+	cat "$HOME/spawn-out" 2>/dev/null || printf '%s\n' '{"ok":true,"result":{"job":"stub","placement":{},"session":{"id":1}},"warnings":[]}'
+	exit "$(cat "$HOME/spawn-rc" 2>/dev/null || echo 0)"
+	;;
+*)
+	printf '{"ok":false,"error":{"kind":"usage","message":"the stub has no %s"},"warnings":[]}\n' "${1:-}"
+	exit 2
+	;;
+esac

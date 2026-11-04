@@ -4,6 +4,9 @@
 
 - [`/shingi:claim <task>`](recipes/claim/README.md): claim a koan task and start on it in this session, with its notes loaded.
 - [`/shingi:start <task>`](recipes/start/README.md): load a task that's already claimed, with its notes.
+- [`/shingi:dispatch <task> [dir]`](recipes/dispatch/README.md): claim a task and start a new session for it through sesshin.
+- [`/shingi:worktree <folder> <branch> [dir]`](recipes/worktree/README.md): add a git worktree and bind it to a koan folder.
+- [`/shingi:stale-claims`](recipes/stale-claims/README.md): list claims whose session is gone.
 
 The rest of this page describes the units tool these replace, whose last release is `v0.4.0`. It's still in this tree, and goes in a later step. The shingi plugin no longer carries its skill.
 
