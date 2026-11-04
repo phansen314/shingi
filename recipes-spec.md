@@ -1,6 +1,6 @@
 # Feature: shingi as a repo of recipes
 
-**Status:** all the recipes are built: `start`, `claim`, `dispatch`, `worktree` and `stale-claims`. Removing the Python tool comes next. Written against shingi `main` at v0.4.0, koan v0.14.0 and sesshin 1.2.1.
+**Status:** all the recipes are built: `start`, `claim`, `dispatch`, `worktree` and `stale-claims`. The Python tool is removed. Written against shingi `main` at v0.4.0, koan v0.14.0 and sesshin 1.2.1.
 
 ## Summary
 
@@ -189,7 +189,7 @@ Not yet seen: a real `sesshin spawn`, Claude's workspace-trust dialog in front o
 
 ## Build order
 
-In vertical slices: the recipes, then removing the Python tool as its own step.
+In vertical slices: the recipes, then removing the Python tool as its own step. Both are done.
 
 ## The smaller recipes
 
