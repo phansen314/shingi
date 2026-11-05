@@ -65,5 +65,5 @@ jq -r '.result.tasks_made[]' <<<"$made" | {
 		printf '%-15s @%s\n' "$phase" "$id"
 	done
 }
-printf '\nReady now:\n'
+printf '\nReady now, a gate to complete when this phase should begin, not a task to claim:\n'
 koan frontier "$root" --fields ref,title 2>/dev/null | jq -r '.result.tasks[]? | "\(.ref) \(.title)"'

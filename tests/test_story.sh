@@ -35,6 +35,7 @@ equals "$(koan show "$(phase_task cleanup)" | jq -r .result.task.title)" 'Clean 
 has "setup           @$(phase_task setup)"
 has "cleanup         @$(phase_task cleanup)"
 has '/ABC-123/setup.start'
+has 'a gate to complete'
 
 test_case "the title is optional, and may hold shell characters"
 run "$story" ABC-1

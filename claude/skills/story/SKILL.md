@@ -7,4 +7,4 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/recipes/story/story.sh:*)
 ---
 !`"${CLAUDE_PLUGIN_ROOT}/recipes/story/story.sh" $ARGUMENTS`
 
-Report to the user what happened above, in a sentence or two. Don't claim, start or complete anything: the user works through these tasks from a coordinator session, with /shingi:claim and /shingi:dispatch.
+Report to the user what happened above, in a sentence or two. Don't claim, start or complete anything. Gates are completed by the coordinator session or the user, never claimed, so say that the ready gate is the next step, and that the phase's task can then be taken with /shingi:claim or /shingi:dispatch.
