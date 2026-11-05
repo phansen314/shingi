@@ -88,3 +88,31 @@ task_id() {
 	esac
 	printf '%s' "$id"
 }
+
+# claim_here ID: true when this session holds the task's claim, just made, or made
+# earlier under its SESSHIN_JOB, as dispatch does; else prints why, and koan's envelope.
+claim_here() {
+	local id=$1 extra claimed holder
+	extra=$(jq -nc --arg job "${SESSHIN_JOB:-}" \
+		'{shingi: ({by: "claude"} + (if $job == "" then {} else {job: $job} end))}')
+	if claimed=$(koan claim "$id" --extra "$extra" 2>/dev/null); then
+		return 0
+	fi
+	case $(jq -r '[.error.kind, .error.rule] | join("/")' 2>/dev/null <<<"$claimed") in
+	conflict/claimed)
+		holder=$(koan show "$id" 2>/dev/null | jq -r '.result.task.claim.extra.shingi.job // empty' 2>/dev/null)
+		if [ -n "${SESSHIN_JOB:-}" ] && [ "$holder" = "$SESSHIN_JOB" ]; then
+			return 0
+		fi
+		"${say:-refuse}" "@$id is already claimed. Tell the user; if it's this session's, /shingi:claim $id --start starts work on it."
+		;;
+	conflict/already-complete)
+		"${say:-refuse}" "@$id is complete. It needs reopening first, if the user wants it worked on."
+		;;
+	*)
+		"${say:-refuse}" "@$id wasn't claimed. Tell the user, quoting koan's message."
+		;;
+	esac
+	printf '%s\n' "$claimed"
+	return 1
+}

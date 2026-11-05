@@ -3,8 +3,6 @@
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 # shellcheck disable=SC2034 # the test files use these
-start=$repo/recipes/start/start.sh
-# shellcheck disable=SC2034
 claim=$repo/recipes/claim/claim.sh
 # shellcheck disable=SC2034
 dispatch=$repo/recipes/dispatch/dispatch.sh

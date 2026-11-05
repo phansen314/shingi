@@ -1,22 +1,21 @@
 # Feature: shingi as a repo of recipes
 
-**Status:** all the recipes are built: `start`, `claim`, `dispatch`, `worktree`, `stale-claims` and `story`. The Python tool is removed. Written against shingi `main` at v0.4.0, koan v0.14.0 and sesshin 1.2.1.
+**Status:** all the recipes are built: `claim`, `dispatch`, `worktree`, `stale-claims` and `story`. The Python tool is removed. Written against shingi `main` at v0.4.0, koan v0.14.0 and sesshin 1.2.1.
 
 ## Summary
 
 shingi stops being a CLI and becomes a small repo of **recipes**: scripts, with a Claude Code skill wrapped around each, that compose [koan](https://github.com/phansen314/koan), [sesshin](https://github.com/phansen314/sesshin) and `jq` through their JSON output. It has no binary and no data of its own. The recipes:
 
-- `/shingi:claim <task>`: claim a task and start on it **in this session**, with its notes loaded;
-- `/shingi:start <task>`: load a task that's already claimed, its notes included;
-- `/shingi:dispatch <task> [dir]`: claim a task and start **a new session** for it through sesshin;
+- `/shingi:claim <task> [--start]`: claim a task for this session, and wait; with `--start`, load its notes and start work on it;
+- `/shingi:dispatch <task> [--start] [dir]`: claim a task and start **a new session** for it through sesshin, whose first prompt is `/shingi:claim`, with `--start` if asked for;
 - `/shingi:worktree <folder> <branch> [dir]`: add a git worktree and bind it to a koan folder;
 - `/shingi:stale-claims`: list claims whose session is gone;
 - `/shingi:story <ticket-key> [title]`: scaffold a ticket's phases, in order, with a task in each.
 
 ## Why
 
-- **Agents claim tasks without reading their notes.** `claim` and `claim-next` return the task's `notes_path`, and an agent can skip opening it. A skill can run a script before its text reaches Claude, and put the script's output in its place, so a command that claims and then prints the notes makes reading them part of claiming. This covers the commands a person invokes. An agent that claims on its own, as koan's skill suggests with `claim-next`, isn't covered; a line in koan's skill would do that, proposed in koan on its own merits.
-- **Starting work right away isn't always right.** A hook that pushed the notes into context after every `koan claim` would start work the moment anything claimed. Commands the user invokes decide when work starts: here (`/shingi:claim`), elsewhere (`/shingi:dispatch`), or not yet (a plain `koan claim`).
+- **Agents claim tasks without reading their notes.** `claim` and `claim-next` return the task's `notes_path`, and an agent can skip opening it. A skill can run a script before its text reaches Claude, and put the script's output in its place, so a command that prints the notes makes reading them part of starting work. This covers the commands a person invokes. An agent that claims on its own, as koan's skill suggests with `claim-next`, isn't covered; a line in koan's skill would do that, proposed in koan on its own merits.
+- **Starting work right away isn't always right.** A hook that pushed the notes into context after every `koan claim` would start work the moment anything claimed. Commands the user invokes decide when work starts. A worker session has two steps, claiming and starting: `/shingi:claim` stops after the first, so the user can work on the task with that session, and `--start` goes on to the second, taking the first if it hasn't happened. A coordinator session's `/shingi:dispatch` opens a worker at either step, and a plain `koan claim` only reserves.
 - **koan and sesshin stay independent.** Neither should know the other exists. shingi depends on both, and neither depends on shingi: the composition lives in one place, as small scripts joined by `jq`.
 - **shingi's old job is done.** Its units of work (a koan folder for tasks, a working folder for notes, worktree markers) were built on the original koan. Today's koan has folders with notes and material, and binds worktrees itself.
 
@@ -25,11 +24,11 @@ shingi stops being a CLI and becomes a small repo of **recipes**: scripts, with 
 1. **Recipes, not a program.** Each recipe is a shell script plus a README, and usually a skill. No binary, no package, no state of its own.
 2. **One-way dependency.** shingi knows koan and sesshin through their JSON contracts. Their docs, code and data never name shingi. A recipe that needs only koan says so and runs without sesshin.
 3. **shingi owns the links it makes.** Following "one program, one namespace", a recipe that ties a claim to a session writes under `shingi`: `{"shingi":{"job":"koan-42"}}` on the koan claim. Never a `sesshin` key in koan, or a `koan` key in sesshin. A link no recipe reads isn't written.
-4. **Skills wrap scripts, never the reverse.** A skill is a one-line `!` call to its recipe's script plus a few sentences telling the session what to do with the output. A person, a cron job or another harness can run the same script without Claude Code.
+4. **Skills wrap scripts, never the reverse.** A skill is a one-line `!` call to its recipe's script plus a few sentences telling the session what to do with the output. The exception is `dispatch`, whose skill may need to ask the user something first, which a `!` call can't wait for: its text settles `--start`, then runs the script. A person, a cron job or another harness can run the same script without Claude Code.
 5. **Every recipe states what it needs and what it writes:** the tools and minimum versions, and every `extra` key it reads or writes. Its script checks the versions first, and names the missing tool plainly.
 6. **Scripts tell, they don't abort.** A skill's `!` command aborts the whole invocation on a non-zero exit. So a script that runs from a skill exits 0 when koan or sesshin refuses, and prints what happened. A refusal's first line begins `DON'T START:`, which is what the skills look for, or `NOT DONE:` in a recipe that starts no work. A non-zero exit is kept for the script's own bugs and bad usage.
 7. **Shell and `jq` only.** POSIX tools, bash, and `jq`. Every script passes shellcheck.
-8. **Workers don't complete.** koan describes the work, and the user manages it from a coordinator session. A session started by `claim`, `start` or `dispatch` is a worker: it edits its task's notes and reports. The coordinator or the user runs `koan complete`, which breaks Claude's auto mode classifier when a session's working directory is a worktree.
+8. **Workers don't complete.** koan describes the work, and the user manages it from a coordinator session. A session using `claim`, dispatched or not, is a worker: it edits its task's notes and reports. The coordinator or the user runs `koan complete`, which breaks Claude's auto mode classifier when a session's working directory is a worktree.
 
 ## Layout
 
@@ -38,16 +37,14 @@ README.md                         what shingi is, the recipes, what each needs; 
 recipes-spec.md                   this doc
 recipes/
   lib.sh                          shared: refusals, version checks, task IDs
-  start/     README.md  start.sh
   claim/     README.md  claim.sh
   dispatch/  README.md  dispatch.sh
   worktree/  README.md  worktree.sh
   stale-claims/  README.md  stale-claims.sh
   story/     README.md  story.sh
 claude/skills/
-  start/SKILL.md                  → /shingi:start <task>
-  claim/SKILL.md                  → /shingi:claim <task>
-  dispatch/SKILL.md               → /shingi:dispatch <task> [dir]
+  claim/SKILL.md                  → /shingi:claim <task> [--start]
+  dispatch/SKILL.md               → /shingi:dispatch <task> [--start] [dir]
   worktree/SKILL.md               → /shingi:worktree <folder> <branch> [dir]
   stale-claims/SKILL.md           → /shingi:stale-claims
   story/SKILL.md                  → /shingi:story <ticket-key> [title]
@@ -66,65 +63,45 @@ Scripts find `lib.sh` and each other from their own path: Claude Code fills `${C
 
 ## The recipes
 
-### start: load a claimed task
+### claim: claim a task, and wait or start work
 
-**Usage:** `start.sh <task>`, where `<task>` is an ID, `42` or `@42`. Skill: `/shingi:start <task>`.
-
-**Needs:** koan v0.13.0 or later, and `jq`.
-
-**Reads:** the task's claim, and its `extra.shingi.job` when present. Writes nothing.
-
-**Does:**
-1. Check `jq` and `koan version`. On a failure or an old version, print what's wrong and stop (exit 0).
-2. `koan show <task>`. On a failure, print koan's envelope, say don't start, and stop. The same when the ID names a folder rather than a task.
-3. **Check the claim.** If `.result.task.claim` is null: print that @42 isn't claimed and the user can run /shingi:claim 42, and stop. If `SESSHIN_JOB` is set in the environment (sesshin sets it in every session it spawns) and the claim's `extra.shingi.job` is set and differs, print that another session holds it, and stop.
-4. **Check it's ready.** koan lets a blocked task be claimed, to reserve it ahead. If `.result.task.readiness` is `blocked`: print what it waits on, and that it stays claimed, and stop.
-5. **Print the brief**, in this order, each under a plain heading:
-   - one line: `@42 (/work/api) is claimed: <title>`. koan doesn't record who holds a claim, so this line doesn't say "you";
-   - the task's record, as `koan show` printed it;
-   - its notes: the file at `.result.task.notes_path`, whole, or `(no notes yet)` when it's missing or empty;
-   - its folder's brief: `koan context <folder id> --limit 20`, as printed, unless the task sits in the root (`.result.task.folder.id` is null).
-6. **Stay under the output limit.** Claude Code collapses a `!` command's output above about 30,000 characters to a 2KB preview and a file path, which would lose the notes. So the brief keeps to 25,000: when the notes, and then the folder's brief, won't fit, it prints instead where to read them and that they must be read before starting.
-7. Exit 0.
-
-**Skill** (`claude/skills/start/SKILL.md`):
-
-```markdown
----
-name: start
-description: Load a koan task that's already claimed, with its notes, and start work on it.
-disable-model-invocation: true
-argument-hint: <task>
-allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/recipes/start/start.sh:*)
----
-!`"${CLAUDE_PLUGIN_ROOT}/recipes/start/start.sh" $0`
-
-If the output above begins with DON'T START, don't start: tell the user what it says. Otherwise start work on the task now, following its notes, and keep its notes file up to date as you go. You're a worker: don't run `koan complete` or `koan unclaim`, and don't change anything in koan but this task's notes. When it's done, or you stop early, say so, with any follow-ups, and the coordinator session or the user will take it from there.
-```
-
-### claim: claim a task and start on it here
-
-**Usage:** `claim.sh <task>`. Skill: `/shingi:claim <task>`.
+**Usage:** `claim.sh <task> [--start]`, where `<task>` is an ID, `42` or `@42`. Skill: `/shingi:claim <task> [--start]`.
 
 **Needs:** koan v0.13.0 or later, and `jq`. Not sesshin.
 
-**Writes:** the claim's `extra`: `{"shingi":{"by":"claude"}}`, plus `"job"` when `SESSHIN_JOB` is set.
+**Reads:** the task's claim, and its `extra.shingi.job` when present.
 
-**Does:**
-1. Check `jq` and `koan version`, as for `start`.
+**Writes:** when the task is unclaimed, the claim's `extra`: `{"shingi":{"by":"claude"}}`, plus `"job"` when `SESSHIN_JOB` is set.
+
+**Does, without `--start`:**
+1. Check `jq` and `koan version`. On a failure or an old version, print what's wrong and stop (exit 0).
 2. `koan claim <task> --extra '<the shingi object>'`. On a failure, print a line for its kind, then koan's envelope, and stop:
-   - `conflict`, rule `claimed`: "@42 is already claimed: tell the user; if it's this session's, /shingi:start 42 loads it";
+   - `conflict`, rule `claimed`: if the claim's `extra.shingi.job` is this session's `SESSHIN_JOB`, it's this session's, as after `dispatch`, so go on. Otherwise "@42 is already claimed: tell the user; if it's this session's, /shingi:claim 42 --start starts work on it";
    - `conflict`, rule `already-complete`: "@42 is complete: it needs reopening first, if the user wants it worked on";
    - any other kind: "Not claimed: tell the user, quoting the message".
-3. Run `start.sh <task>` and print what it prints. It finds the claim just made. A blocked task stays claimed, reserved ahead, and isn't started.
+3. Print a line naming the task, and where its notes are. A blocked task is claimed, reserved ahead, and the output says what it waits on. It doesn't print the notes, and starts nothing. Refusals begin `NOT DONE:`.
 
-**Skill** (`claude/skills/claim/SKILL.md`): as `start`'s, calling `claim.sh`, with the description "Claim a koan task and start work on it in this session, with its notes loaded", and `allowed-tools` naming `claim.sh`.
+**Does, with `--start`:** refusals begin `DON'T START:`.
+1. Check `jq` and `koan version`, as above.
+2. `koan show <task>`. On a failure, print koan's envelope, say don't start, and stop. The same when the ID names a folder rather than a task.
+3. **Check it can be worked on.** A complete task: print that it needs reopening, and stop. If `SESSHIN_JOB` is set in the environment (sesshin sets it in every session it spawns) and the claim's `extra.shingi.job` is set and differs, print that another session holds it, and stop.
+4. **Check it's ready.** If `.result.task.readiness` is `blocked`: print what it waits on, and whether it was claimed, and stop. This comes before claiming, so a task that can't start isn't reserved by accident; a plain claim is how to reserve one ahead.
+5. **Claim it** if `.result.task.claim` is null, as in step 2 above. A claim that's already there is left as it is, which is how `/shingi:claim 42` then `/shingi:claim 42 --start` works.
+6. **Print the brief**, in this order, each under a plain heading:
+   - one line: `START: @42 (/work/api) is claimed: <title>`. `START:` is what tells the skill to start work. koan doesn't record who holds a claim, so this line doesn't say "you";
+   - the task's record, as `koan show` printed it;
+   - its notes: the file at `.result.task.notes_path`, whole, or `(no notes yet)` when it's missing or empty;
+   - its folder's brief: `koan context <folder id> --limit 20`, as printed, unless the task sits in the root (`.result.task.folder.id` is null).
+7. **Stay under the output limit.** Claude Code collapses a `!` command's output above about 30,000 characters to a 2KB preview and a file path, which would lose the notes. So the brief keeps to 25,000: when the notes, and then the folder's brief, won't fit, it prints instead where to read them and that they must be read before starting.
+8. Exit 0.
+
+**Skill** (`claude/skills/claim/SKILL.md`): a `!` call to `claim.sh` with `$ARGUMENTS`. One skill behaves two ways, so its text goes by the output's first line rather than the session's reading of the arguments: `NOT DONE` or `DON'T START` is reported, `START:` starts work on the task, following its notes, and anything else is reported and then waits for the user, without reading the notes. It gives the worker rules of principle 8 for any work on the task.
 
 ### dispatch: claim a task and start a new session for it
 
-**Usage:** `dispatch.sh <task> [dir] [-- <sesshin spawn options>]`. Options after `--`, such as `--template opus` or `--type split`, go to `sesshin spawn` as given. Skill: `/shingi:dispatch <task> [dir]`.
+**Usage:** `dispatch.sh <task> [--start] [dir] [-- <sesshin spawn options>]`. Without `--start`, the new session waits for the user; with it, the session starts work. Options after `--`, such as `--template opus` or `--type split`, go to `sesshin spawn` as given. Skill: `/shingi:dispatch <task> [--start] [dir]`, which asks which is wanted when it isn't clear.
 
-**Needs:** koan v0.13.0 or later, sesshin 1.2.0 or later with kitty or iTerm2 set up for `spawn`, and `jq`. The new session needs the shingi plugin, installed for the user, not just for a project, so that it has `/shingi:start`.
+**Needs:** koan v0.13.0 or later, sesshin 1.2.0 or later with kitty or iTerm2 set up for `spawn`, and `jq`. The new session needs the shingi plugin, installed for the user, not just for a project, so that it has `/shingi:claim`.
 
 **Writes:** the claim's `extra`, `{"shingi":{"by":"dispatch","job":"koan-<id>"}}`, and the session's sesshin job, `koan-<id>`.
 
@@ -132,8 +109,8 @@ If the output above begins with DON'T START, don't start: tell the user what it 
 1. Check `koan version` and `sesshin version`. Name what's missing or too old, and stop.
 2. Work out the ID (`@42` → `42`), the job `koan-42`, and, when `[dir]` is given, the directory, resolved. It must exist.
 3. **Check it's ready:** a blocked task prints what it waits on, and stops, so no window opens only to refuse.
-4. **Claim first:** `koan claim <id> --extra '{"shingi":{"by":"dispatch","job":"koan-42"}}'`. On a failure, as `claim`'s step 2, and stop. Claiming before spawning means no other agent can take the task while the window opens.
-5. **Spawn:** `sesshin spawn --job koan-42 [--cwd <dir>] --prompt '/shingi:start 42' [options after --]`. `--cwd` is passed only when `[dir]` is given, so a template's directory, or else the working directory, applies as sesshin's own default. So two dispatches with no `[dir]` share a checkout: give each its own directory until the `worktree` recipe exists.
+4. **Claim first:** `koan claim <id> --extra '{"shingi":{"by":"dispatch","job":"koan-42"}}'`. On a failure, as `claim`'s step 2, and stop. Claiming before spawning means no other agent can take the task while the window opens. The new session's `/shingi:claim` recognises the claim by its job.
+5. **Spawn:** `sesshin spawn --job koan-42 [--cwd <dir>] --prompt '/shingi:claim 42[ --start]' [options after --]`. `--cwd` is passed only when `[dir]` is given, so a template's directory, or else the working directory, applies as sesshin's own default. So two dispatches with no `[dir]` share a checkout: give each its own directory until the `worktree` recipe exists.
 6. **On a spawn failure**, by sesshin's error:
    - `terminal` with `details.reason` `launch-unknown`: a window may have opened, and sesshin keeps its reservation. Keep the claim, and print "A window may have opened: check with `sesshin focus koan-42`; @42 stays claimed".
    - anything else (`conflict` with `details.rule` `job-taken`, `terminal` with `launch-failed`, `invalid-input`, `not-found` for a template, …): nothing started, so undo the claim with `koan unclaim <id>`, and print sesshin's envelope with "No session started; @42 is unclaimed again".
@@ -142,31 +119,18 @@ If the output above begins with DON'T START, don't start: tell the user what it 
 
 **The handle:** sesshin selects a session by its job, so `sesshin focus koan-42`, `sesshin show koan-42` and `sesshin send koan-42 --text '…'` reach the session working on @42. sesshin refuses a second live session with that job, which is a second guard beside koan's claim.
 
-**Finishing:** the new session is a worker, by `start`'s skill text and principle 8: it says when it's done or stopped, and the coordinator session or the user completes or unclaims the task. This matches koan's rules for a worker started by a coordinator.
+**Finishing:** the new session is a worker, by its skill's text and principle 8: it says when it's done or stopped, and the coordinator session or the user completes or unclaims the task. This matches koan's rules for a worker started by a coordinator.
 
-**Skill** (`claude/skills/dispatch/SKILL.md`):
-
-```markdown
----
-name: dispatch
-description: Claim a koan task and start a new Claude session for it with sesshin.
-disable-model-invocation: true
-argument-hint: <task> [dir]
-allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/recipes/dispatch/dispatch.sh:*)
----
-!`"${CLAUDE_PLUGIN_ROOT}/recipes/dispatch/dispatch.sh" $ARGUMENTS`
-
-Report to the user what happened above, in a sentence or two. Don't start work on the task yourself: the new session does that.
-```
+**Skill** (`claude/skills/dispatch/SKILL.md`): text, not a `!` call, since a `!` command runs before the session can ask anything (principle 4). It settles `--start` from the arguments or the conversation, asks the user if neither says, runs the script once, and reports. The session doesn't start work on the task itself.
 
 ## Tests
 
 - **Real koan, scratch HOME.** Every test gets its own `HOME`, runs `koan init`, and builds the tasks it needs. CI installs koan at a pinned tag (`go install github.com/phansen314/koan/cmd/koan@v0.14.0`), so a koan release can't break the tests unannounced. The pin moves on purpose.
 - **A stub sesshin, with `dispatch`.** `spawn` needs a real terminal, so `tests/stub/sesshin`, put first on `PATH`, records its arguments to a file and prints JSON that each test chooses: success, `job-taken`, `launch-failed`, `launch-unknown`, a `not-started` warning. `version` is stubbed too.
 - **What they check:**
-  - `start`: unclaimed, claimed, held by another job, blocked, a folder's ID, missing notes, notes over the limit, a task in the root, koan missing or too old.
-  - `claim`: success, its `extra`, `claimed`, `already-complete`, not found, blocked.
-  - `dispatch`: every branch of step 6, with the claim afterwards held or undone as the step says; the exact `spawn` arguments, with `--cwd` only when `[dir]` is given; options after `--` passed through; a blocked task opening no window.
+  - `claim`: success, loading no notes, its `extra`, a claim under this session's job and under another's, `claimed`, `already-complete`, not found, blocked, and a first line that only says `START:` with `--start`.
+  - `claim --start`: unclaimed (claiming it), claimed, a plain claim first, complete, held by another job, blocked with and without a claim, a folder's ID, missing notes, notes over the limit, a task in the root, koan missing or too old.
+  - `dispatch`: every branch of step 6, with the claim afterwards held or undone as the step says; the exact `spawn` arguments with and without `--start`, with `--cwd` only when `[dir]` is given; the new session's `claim` accepting the claim, with and without `--start`; options after `--` passed through; a blocked task opening no window.
   - `worktree`: a new and an existing branch, the default and an explicit directory, each refusal making nothing, and a refused bind removing what was made.
   - `stale-claims`: live, gone and no job, and that it changes nothing.
   - `story`: what it makes, the phases opening one at a time, a task joined later, each refusal making nothing, and a refused edge saying what's left.
@@ -176,7 +140,7 @@ Report to the user what happened above, in a sentence or two. Don't start work o
 
 ## Permissions
 
-A skill's `allowed-tools` pre-approves its own script and nothing else: `Bash(${CLAUDE_PLUGIN_ROOT}/recipes/start/start.sh:*)`. What a script runs inside isn't checked, so no rule for `koan`, `sesshin`, `jq` or `cat` is needed to run a recipe. What the session does afterwards, such as `koan complete`, goes by koan's and sesshin's own rules, set by their install scripts.
+A skill's `allowed-tools` pre-approves its own script and nothing else: `Bash(${CLAUDE_PLUGIN_ROOT}/recipes/claim/claim.sh:*)`. What a script runs inside isn't checked, so no rule for `koan`, `sesshin`, `jq` or `cat` is needed to run a recipe. What the session does afterwards, such as `koan complete`, goes by koan's and sesshin's own rules, set by their install scripts.
 
 There's no install script. The old `shingi` permission rules are removed by `scripts/install.sh --uninstall` at `v0.4.0`.
 
@@ -188,9 +152,9 @@ Checked on Claude Code 2.1.318 with a throwaway plugin:
 2. **Placeholders in a `!` command** work: `${CLAUDE_PLUGIN_ROOT}`, `$0` and `$ARGUMENTS` are all filled in, `~` expands, and `-- --template opus` passes through.
 3. **`allowed-tools` for a script path** works, with `${CLAUDE_PLUGIN_ROOT}` in the rule. `Bash(koan:*)` and `Bash(*/recipes/x.sh:*)` don't approve the script, and the skill fails with "This command requires approval".
 4. **`SESSHIN_JOB`** reaches a `!` command. `CLAUDE_PLUGIN_ROOT` doesn't.
-5. **Output over about 30,000 characters** reaches the model as a 2KB preview and a path, which is why `start` has a limit.
+5. **Output over about 30,000 characters** reaches the model as a 2KB preview and a path, which is why `claim --start` has a limit.
 
-Not yet seen: a real `sesshin spawn`, Claude's workspace-trust dialog in front of the first prompt, and the plugin installed from the marketplace rather than `--plugin-dir`. The end-to-end check below covers them.
+Not yet seen: `allowed-tools` approving the `dispatch` script when the session runs it, rather than a `!` command, a real `sesshin spawn`, Claude's workspace-trust dialog in front of the first prompt, and the plugin installed from the marketplace rather than `--plugin-dir`. The end-to-end check below covers them.
 
 ## Build order
 
@@ -221,4 +185,4 @@ Not built. Each in the same shape, if wanted after real use:
 - The recipes behave as above.
 - `tests/run.sh` passes on Linux and macOS, and shellcheck is clean.
 - Each recipe's README states its needs and writes.
-- From a real session, `/shingi:claim`, `/shingi:start` and `/shingi:dispatch` each work end to end against your own koan root and kitty or iTerm2.
+- From a real session, `/shingi:claim`, with and without `--start`, and `/shingi:dispatch` each work end to end against your own koan root and kitty or iTerm2.
