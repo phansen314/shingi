@@ -1,6 +1,6 @@
 # Feature: shingi as a repo of recipes
 
-**Status:** all the recipes are built: `start`, `claim`, `dispatch`, `worktree` and `stale-claims`. The Python tool is removed. Written against shingi `main` at v0.4.0, koan v0.14.0 and sesshin 1.2.1.
+**Status:** all the recipes are built: `start`, `claim`, `dispatch`, `worktree`, `stale-claims` and `story`. The Python tool is removed. Written against shingi `main` at v0.4.0, koan v0.14.0 and sesshin 1.2.1.
 
 ## Summary
 
@@ -10,7 +10,8 @@ shingi stops being a CLI and becomes a small repo of **recipes**: scripts, with 
 - `/shingi:start <task>`: load a task that's already claimed, its notes included;
 - `/shingi:dispatch <task> [dir]`: claim a task and start **a new session** for it through sesshin;
 - `/shingi:worktree <folder> <branch> [dir]`: add a git worktree and bind it to a koan folder;
-- `/shingi:stale-claims`: list claims whose session is gone.
+- `/shingi:stale-claims`: list claims whose session is gone;
+- `/shingi:story <ticket-key> [title]`: scaffold a ticket's phases, in order, with a task in each.
 
 ## Why
 
@@ -28,6 +29,7 @@ shingi stops being a CLI and becomes a small repo of **recipes**: scripts, with 
 5. **Every recipe states what it needs and what it writes:** the tools and minimum versions, and every `extra` key it reads or writes. Its script checks the versions first, and names the missing tool plainly.
 6. **Scripts tell, they don't abort.** A skill's `!` command aborts the whole invocation on a non-zero exit. So a script that runs from a skill exits 0 when koan or sesshin refuses, and prints what happened. A refusal's first line begins `DON'T START:`, which is what the skills look for, or `NOT DONE:` in a recipe that starts no work. A non-zero exit is kept for the script's own bugs and bad usage.
 7. **Shell and `jq` only.** POSIX tools, bash, and `jq`. Every script passes shellcheck.
+8. **Workers don't complete.** koan describes the work, and the user manages it from a coordinator session. A session started by `claim`, `start` or `dispatch` is a worker: it edits its task's notes and reports. The coordinator or the user runs `koan complete`, which breaks Claude's auto mode classifier when a session's working directory is a worktree.
 
 ## Layout
 
@@ -41,12 +43,14 @@ recipes/
   dispatch/  README.md  dispatch.sh
   worktree/  README.md  worktree.sh
   stale-claims/  README.md  stale-claims.sh
+  story/     README.md  story.sh
 claude/skills/
   start/SKILL.md                  → /shingi:start <task>
   claim/SKILL.md                  → /shingi:claim <task>
   dispatch/SKILL.md               → /shingi:dispatch <task> [dir]
   worktree/SKILL.md               → /shingi:worktree <folder> <branch> [dir]
   stale-claims/SKILL.md           → /shingi:stale-claims
+  story/SKILL.md                  → /shingi:story <ticket-key> [title]
 tests/
   run.sh                          runs every test file
   lib.sh                          a scratch HOME per test, assertions
@@ -95,7 +99,7 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/recipes/start/start.sh:*)
 ---
 !`"${CLAUDE_PLUGIN_ROOT}/recipes/start/start.sh" $0`
 
-If the output above begins with DON'T START, don't start: tell the user what it says. Otherwise start work on the task now, following its notes, and keep its notes file up to date as you go. You own this task; you aren't a coordinator's worker. Run `koan complete` on it when it's done, or `koan unclaim` if you stop early.
+If the output above begins with DON'T START, don't start: tell the user what it says. Otherwise start work on the task now, following its notes, and keep its notes file up to date as you go. You're a worker: don't run `koan complete` or `koan unclaim`, and don't change anything in koan but this task's notes. When it's done, or you stop early, say so, with any follow-ups, and the coordinator session or the user will take it from there.
 ```
 
 ### claim: claim a task and start on it here
@@ -138,7 +142,7 @@ If the output above begins with DON'T START, don't start: tell the user what it 
 
 **The handle:** sesshin selects a session by its job, so `sesshin focus koan-42`, `sesshin show koan-42` and `sesshin send koan-42 --text '…'` reach the session working on @42. sesshin refuses a second live session with that job, which is a second guard beside koan's claim.
 
-**Finishing:** the new session owns the task, by `start`'s skill text: it completes it, or unclaims it if it stops early. koan's skill has rules for a worker started by a coordinator, which report back instead; no coordinator is waiting here, so the skill text says so.
+**Finishing:** the new session is a worker, by `start`'s skill text and principle 8: it says when it's done or stopped, and the coordinator session or the user completes or unclaims the task. This matches koan's rules for a worker started by a coordinator.
 
 **Skill** (`claude/skills/dispatch/SKILL.md`):
 
@@ -165,6 +169,7 @@ Report to the user what happened above, in a sentence or two. Don't start work o
   - `dispatch`: every branch of step 6, with the claim afterwards held or undone as the step says; the exact `spawn` arguments, with `--cwd` only when `[dir]` is given; options after `--` passed through; a blocked task opening no window.
   - `worktree`: a new and an existing branch, the default and an explicit directory, each refusal making nothing, and a refused bind removing what was made.
   - `stale-claims`: live, gone and no job, and that it changes nothing.
+  - `story`: what it makes, the phases opening one at a time, a task joined later, each refusal making nothing, and a refused edge saying what's left.
   - Every script that a skill runs exits 0 on every refusal, and prints the refused tool's envelope.
 - **shellcheck** on every script, in CI.
 - CI on Linux and macOS, reusing today's workflow's action pins.
@@ -197,6 +202,7 @@ Each recipe's README states its usage, needs and writes in full.
 
 - **worktree:** `git worktree add` and `koan bind` together, with `koan context --here` to finish. A refused bind removes the worktree again, and the branch if this run made it. Its path goes to `dispatch`.
 - **stale-claims:** claims whose `extra.shingi.job` names no live sesshin session, joined with `jq` from `koan task list --claimed` and `sesshin list`, for the user to decide on unclaiming. Claims with no job can't be judged, and are listed apart. It changes nothing.
+- **story:** a folder per ticket under the root, with `setup`, `research`, `implementation`, `review` and `cleanup` inside and a task joined to each. Each phase's start gate waits on the previous phase's done gate, so the frontier shows only the current phase: if tasks alone waited on the previous phase, all five start gates would be ready at once. A batch can't make an edge between gates, so `koan block` makes them after it. It completes nothing, gates included (principle 8).
 
 ## Later recipes
 

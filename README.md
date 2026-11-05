@@ -13,10 +13,13 @@ Linux and macOS only.
 | [`/shingi:dispatch <task> [dir]`](recipes/dispatch/README.md) | Claim a task and start a new session for it. | koan, sesshin |
 | [`/shingi:worktree <folder> <branch> [dir]`](recipes/worktree/README.md) | Add a git worktree and bind it to a koan folder. | koan, git |
 | [`/shingi:stale-claims`](recipes/stale-claims/README.md) | List claims whose session is gone, for you to decide on. | koan, sesshin |
+| [`/shingi:story <ticket-key> [title]`](recipes/story/README.md) | Scaffold a ticket: setup, research, implementation, review and cleanup phases, in order, with a task in each. | koan |
 
 Every recipe needs `jq`. koan must be v0.13.0 or later, and sesshin v1.2.0 or later. Each recipe's README says what it reads and writes.
 
 The skills are for you to invoke, so nothing starts work on its own: `/shingi:claim` works here, `/shingi:dispatch` works elsewhere, and a plain `koan claim` reserves a task for later. The scripts run the same way without Claude Code.
+
+koan describes the work, and you manage it from a coordinator session. Sessions started with `/shingi:claim`, `/shingi:start` or `/shingi:dispatch` are workers: they report when they're done, and the coordinator or you run `koan complete`. Workers mustn't run it, because it breaks Claude's auto mode classifier when the session's working directory is a worktree.
 
 ## Install
 
