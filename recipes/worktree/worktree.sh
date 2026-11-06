@@ -7,11 +7,11 @@ here=$(cd "$(dirname "$0")" && pwd -P)
 # shellcheck source=recipes/lib.sh
 . "$here/../lib.sh"
 
-if [ $# -lt 2 ] || [ $# -gt 3 ]; then
-	usage "worktree.sh <folder> <branch> [dir]"
+if [ $# -lt 1 ] || [ $# -gt 3 ]; then
+	usage "worktree.sh <folder> [branch] [dir]"
 fi
 folder=$1
-branch=$2
+branch=${2:-}
 dir=${3:-}
 
 say=stop
@@ -36,10 +36,21 @@ if [ "$(jq -r .result.kind <<<"$where")" != folder ]; then
 	exit 0
 fi
 
-# By default a sibling of the checkout: ~/code/api and feature/x make ~/code/api-feature-x.
+if [ -z "$branch" ]; then
+	branch=$(koan show "$folder" 2>/dev/null | jq -r '.result.folder.name // empty')
+	if [ -z "$branch" ]; then
+		stop "$folder has no name to use as a branch, so give one. Tell the user; nothing was made."
+		exit 0
+	fi
+fi
+
+# By default where Claude Code keeps worktrees, so a session can use EnterWorktree:
+# ~/code/api and feature/x make ~/code/api/.claude/worktrees/feature-x.
+checkout=
 if [ -z "$dir" ]; then
-	checkout=$(cd "$common/.." && pwd -P)
-	dir=$checkout-$(printf '%s' "$branch" | tr / -)
+	common=$(cd "$common" && pwd -P)
+	checkout=$(dirname "$common")
+	dir=$checkout/.claude/worktrees/$(printf '%s' "$branch" | tr / -)
 fi
 if [ -e "$dir" ]; then
 	stop "$dir already exists. Tell the user; nothing was made."
@@ -70,6 +81,16 @@ if ! bound=$(koan bind "$folder" "$dir" 2>/dev/null); then
 	stop "koan couldn't bind the worktree, so it was removed again. Tell the user, quoting koan's message."
 	printf '%s\n' "$bound"
 	exit 0
+fi
+
+# Inside the checkout, git would list it as untracked, and git add -A would take it.
+if [ -n "$checkout" ] && ! git -C "$checkout" check-ignore -q .claude/worktrees/; then
+	exclude=$common/info/exclude
+	mkdir -p "$common/info"
+	if [ -s "$exclude" ] && [ -n "$(tail -c 1 "$exclude")" ]; then
+		printf '\n' >>"$exclude"
+	fi
+	printf '.claude/worktrees/\n' >>"$exclude"
 fi
 
 printf 'Worktree at %s, on %s, bound to %s.\n\n' "$dir" "$branch" "$(jq -r .result.ref <<<"$where")"

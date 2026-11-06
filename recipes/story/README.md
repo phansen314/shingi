@@ -20,6 +20,8 @@ The title is optional, and becomes the folder's title. Quote it in the skill if 
 
 **Order:** each task is joined to its phase, so it waits on the phase's start gate, and the done gate waits on it. Each start gate waits on the previous phase's done gate, so `koan frontier /ABC-123` shows only the current phase. A task you add later with `--join /ABC-123/research` falls into the same order.
 
+**The worktree:** the setup task's notes say to run [`/shingi:worktree /ABC-123`](../worktree/README.md), which makes one worktree for the whole ticket, on the branch `ABC-123`, in the repository's `.claude/worktrees/ABC-123`. Every phase's worker can share it, since the phases run in order. The coordinator session or you run it, because a worker changes nothing in koan.
+
 **Completing:** koan doesn't complete gates by itself, so a phase takes three completions: its start gate, its task and its done gate. The coordinator or you make them. The start gate is the point to decide whether a phase should begin.
 
 **Needs:** koan v0.13.0 or later, and `jq`. Not sesshin.

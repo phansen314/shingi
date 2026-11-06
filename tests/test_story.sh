@@ -37,6 +37,15 @@ has "cleanup         @$(phase_task cleanup)"
 has '/ABC-123/setup.start'
 has 'a gate to complete'
 
+test_case "only the setup task's notes say how to make the worktree"
+"$story" ABC-123 >/dev/null
+setup_notes=$(cat "$(koan show "$(phase_task setup)" | jq -r .result.task.notes_path)")
+out=$setup_notes
+has '/shingi:worktree /ABC-123'
+has '.claude/worktrees/ABC-123'
+out=$(cat "$(koan show "$(phase_task research)" | jq -r .result.task.notes_path)" 2>/dev/null)
+lacks '/shingi:worktree'
+
 test_case "the title is optional, and may hold shell characters"
 run "$story" ABC-1
 exit_is 0

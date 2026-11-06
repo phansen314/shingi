@@ -8,7 +8,7 @@ shingi stops being a CLI and becomes a small repo of **recipes**: scripts, with 
 
 - `/shingi:claim <task> [--start]`: claim a task for this session, and wait; with `--start`, load its notes and start work on it;
 - `/shingi:dispatch <task> [--start] [dir]`: claim a task and start **a new session** for it through sesshin, whose first prompt is `/shingi:claim`, with `--start` if asked for;
-- `/shingi:worktree <folder> <branch> [dir]`: add a git worktree and bind it to a koan folder;
+- `/shingi:worktree <folder> [branch] [dir]`: add a git worktree in the repository's `.claude/worktrees` and bind it to a koan folder;
 - `/shingi:stale-claims`: list claims whose session is gone;
 - `/shingi:story <ticket-key> [title]`: scaffold a ticket's phases, in order, with a task in each.
 
@@ -45,7 +45,7 @@ recipes/
 claude/skills/
   claim/SKILL.md                  → /shingi:claim <task> [--start]
   dispatch/SKILL.md               → /shingi:dispatch <task> [--start] [dir]
-  worktree/SKILL.md               → /shingi:worktree <folder> <branch> [dir]
+  worktree/SKILL.md               → /shingi:worktree <folder> [branch] [dir]
   stale-claims/SKILL.md           → /shingi:stale-claims
   story/SKILL.md                  → /shingi:story <ticket-key> [title]
 tests/
@@ -131,7 +131,7 @@ Scripts find `lib.sh` and each other from their own path: Claude Code fills `${C
   - `claim`: success, loading no notes, its `extra`, a claim under this session's job and under another's, `claimed`, `already-complete`, not found, blocked, and a first line that only says `START:` with `--start`.
   - `claim --start`: unclaimed (claiming it), claimed, a plain claim first, complete, held by another job, blocked with and without a claim, a folder's ID, missing notes, notes over the limit, a task in the root, koan missing or too old.
   - `dispatch`: every branch of step 6, with the claim afterwards held or undone as the step says; the exact `spawn` arguments with and without `--start`, with `--cwd` only when `[dir]` is given; the new session's `claim` accepting the claim, with and without `--start`; options after `--` passed through; a blocked task opening no window.
-  - `worktree`: a new and an existing branch, the default and an explicit directory, each refusal making nothing, and a refused bind removing what was made.
+  - `worktree`: a new and an existing branch, the branch defaulting to the folder's name, the default and an explicit directory, git's status staying clean, each refusal making nothing, and a refused bind removing what was made.
   - `stale-claims`: live, gone and no job, and that it changes nothing.
   - `story`: what it makes, the phases opening one at a time, a task joined later, each refusal making nothing, and a refused edge saying what's left.
   - Every script that a skill runs exits 0 on every refusal, and prints the refused tool's envelope.
@@ -164,9 +164,9 @@ In vertical slices: the recipes, then removing the Python tool as its own step. 
 
 Each recipe's README states its usage, needs and writes in full.
 
-- **worktree:** `git worktree add` and `koan bind` together, with `koan context --here` to finish. A refused bind removes the worktree again, and the branch if this run made it. Its path goes to `dispatch`.
+- **worktree:** `git worktree add` and `koan bind` together, with `koan context --here` to finish. A refused bind removes the worktree again, and the branch if this run made it. The branch defaults to the folder's name, and the directory to `.claude/worktrees/` in the repository, where Claude Code's `EnterWorktree` can switch to it, which it allows between worktrees only under that directory. Since that's inside the checkout, it adds the directory to `.git/info/exclude` when git doesn't already ignore it. Its path goes to `dispatch`.
 - **stale-claims:** claims whose `extra.shingi.job` names no live sesshin session, joined with `jq` from `koan task list --claimed` and `sesshin list`, for the user to decide on unclaiming. Claims with no job can't be judged, and are listed apart. It changes nothing.
-- **story:** a folder per ticket under the root, with `setup`, `research`, `implementation`, `review` and `cleanup` inside and a task joined to each. Each phase's start gate waits on the previous phase's done gate, so the frontier shows only the current phase: if tasks alone waited on the previous phase, all five start gates would be ready at once. A batch can't make an edge between gates, so `koan block` makes them after it. It completes nothing, gates included (principle 8).
+- **story:** a folder per ticket under the root, with `setup`, `research`, `implementation`, `review` and `cleanup` inside and a task joined to each. Each phase's start gate waits on the previous phase's done gate, so the frontier shows only the current phase: if tasks alone waited on the previous phase, all five start gates would be ready at once. A batch can't make an edge between gates, so `koan block` makes them after it. The setup task's notes say to run `/shingi:worktree /<key>`, for one worktree per ticket, which the coordinator or the user does, since a worker changes nothing in koan. It completes nothing, gates included (principle 8).
 
 ## Later recipes
 

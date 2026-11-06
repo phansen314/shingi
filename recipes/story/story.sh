@@ -32,7 +32,8 @@ input=$(jq -n --arg root "$root" --arg key "$key" --arg title "$title" '
 	| map({path: "\($root)/\(.[0])", verb: .[1]}) as $phases
 	| {
 		folders: ([{path: $root} + (if $title == "" then {} else {title: $title} end)] + ($phases | map({path}))),
-		tasks: ($phases | map({title: "\(.verb) \($key)", folder: .path, join: [.path]}))
+		tasks: ($phases | map({title: "\(.verb) \($key)", folder: .path, join: [.path]}
+			+ (if .verb == "Set up" then {notes: "Make the worktree for this ticket. The coordinator session or the user runs /shingi:worktree \($root) from the repository, which makes the branch \($key) in .claude/worktrees/\($key) and binds it to \($root). A worker can'"'"'t do this, since it changes nothing in koan: report that it needs doing.\n"} else {} end)))
 	}')
 
 if ! made=$(koan batch -i - 2>/dev/null <<<"$input"); then

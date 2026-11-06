@@ -10,7 +10,7 @@ Linux and macOS only.
 |---|---|---|
 | [`/shingi:claim <task> [--start]`](recipes/claim/README.md) | Claim a task for this session, and wait. With `--start`, load its notes and start on it. | koan |
 | [`/shingi:dispatch <task> [--start] [dir]`](recipes/dispatch/README.md) | Claim a task and start a new session for it, which waits for you or, with `--start`, starts work. The skill asks which if you don't say. | koan, sesshin |
-| [`/shingi:worktree <folder> <branch> [dir]`](recipes/worktree/README.md) | Add a git worktree and bind it to a koan folder. | koan, git |
+| [`/shingi:worktree <folder> [branch] [dir]`](recipes/worktree/README.md) | Add a git worktree in the repository's `.claude/worktrees`, on a branch named for the folder by default, and bind it to that folder. | koan, git |
 | [`/shingi:stale-claims`](recipes/stale-claims/README.md) | List claims whose session is gone, for you to decide on. | koan, sesshin |
 | [`/shingi:story <ticket-key> [title]`](recipes/story/README.md) | Scaffold a ticket: setup, research, implementation, review and cleanup phases, in order, with a task in each. | koan |
 
