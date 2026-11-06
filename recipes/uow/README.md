@@ -7,9 +7,10 @@ recipes/uow/uow.sh implementation ABC-123 'Fix the login bug'
 recipes/uow/uow.sh epic PAY-1 'Payments rework'
 recipes/uow/uow.sh research PAY-2 --in /PAY-1 'Which gateway'
 /shingi:uow implementation ABC-123 'Fix the login bug'    # the skill, in Claude Code
+/shingi:uow a research spike PAY-2 under the payments epic   # or say it, and the session settles the arguments
 ```
 
-The title is optional, and becomes the folder's title. Quote it in the skill if it holds an apostrophe or other shell characters.
+The title is optional, and becomes the folder's title. In the skill, you can give the arguments as above or say what you want: the session works out the type, key, epic and title, asks for a missing type or key, and runs the script once. It never makes up a key or a title.
 
 ## The types
 

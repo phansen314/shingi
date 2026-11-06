@@ -7,6 +7,7 @@ recipes/worktree/worktree.sh /ABC-123                  # branch ABC-123, in ~/co
 recipes/worktree/worktree.sh /work/api feature/x       # branch feature/x, in .claude/worktrees/feature-x
 recipes/worktree/worktree.sh /work/api feature/x ~/wt/x   # there
 /shingi:worktree /ABC-123                              # the skill, in Claude Code
+/shingi:worktree for ABC-123                           # or say it: the session finds the folder, even inside an epic
 ```
 
 The branch defaults to the folder's name. It's used if it exists, and made from `HEAD` if it doesn't.

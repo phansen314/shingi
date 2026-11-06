@@ -180,6 +180,12 @@ for where in /ABC-1 /plain /nope "$(new_task loose)"; do
 done
 equals "$(koan folder list --limit 1 --fields id | jq -r .result.total)" "$before"
 
+test_case "after --, the title is taken whole, as the skills pass it"
+"$uow" epic PAY-1 >/dev/null
+run "$uow" research PAY-2 --in /PAY-1 -- "--in it's a 'gateway' spike"
+exit_is 0
+equals "$(koan show /PAY-1/PAY-2 | jq -r .result.folder.title)" "--in it's a 'gateway' spike"
+
 test_case "an unknown type, or --in twice or bare, is bad usage"
 for args in "bogus X" "story X" "research R-1 --in /a --in /b" "research R-1 --in"; do
 	# shellcheck disable=SC2086 # split on purpose
