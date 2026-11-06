@@ -8,7 +8,7 @@ here=$(cd "$(dirname "$0")" && pwd -P)
 # shellcheck source=recipes/lib.sh
 . "$here/../lib.sh"
 
-synopsis="unit.sh <epic|implementation|research> <key> [--in <epic>] [title]"
+synopsis="uow.sh <epic|implementation|research> <key> [--in <epic>] [title]"
 phases=(setup research implementation review cleanup)
 
 [ $# -ge 2 ] || usage "$synopsis"
@@ -59,8 +59,8 @@ if [ -n "$parent" ]; then
 		printf '%s\n' "$shown"
 		exit 0
 	fi
-	if [ "$(jq -r '.result.folder.extra.shingi.unit.type // empty' <<<"$shown")" != epic ]; then
-		stop "$parent isn't an epic, so it can't hold the unit. Make one with /shingi:unit epic <key>. Tell the user; nothing was made."
+	if [ "$(jq -r '.result.folder.extra.shingi.uow.type // empty' <<<"$shown")" != epic ]; then
+		stop "$parent isn't an epic, so it can't hold the unit. Make one with /shingi:uow epic <key>. Tell the user; nothing was made."
 		exit 0
 	fi
 	parent=$(jq -r .result.folder.path <<<"$shown")
@@ -70,7 +70,7 @@ root=$parent/$key
 # jq's output is built apart from the batch, so that a failure here can't look like koan's.
 input=$(jq -n --arg type "$type" --arg root "$root" --arg key "$key" --arg title "$title" --arg parent "$parent" '
 	def nested: if $parent == "" then {} else {join: [$parent]} end;
-	({path: $root, extra: {shingi: {unit: {type: $type, v: 1}}}}
+	({path: $root, extra: {shingi: {uow: {type: $type, v: 1}}}}
 		+ (if $title == "" then {} else {title: $title} end) + nested) as $unit
 	| if $type == "epic" then
 		{folders: [$unit], tasks: []}
@@ -118,7 +118,7 @@ printf 'Scaffolded %s, a unit of type %s' "$root" "$type"
 printf '\n'
 
 if [ "$type" = epic ]; then
-	printf '\nAdd units to it with /shingi:unit <type> <key> --in %s. They run side by side, unless one is made to wait on another with koan block.\n' "$root"
+	printf '\nAdd units to it with /shingi:uow <type> <key> --in %s. They run side by side, unless one is made to wait on another with koan block.\n' "$root"
 	exit 0
 fi
 

@@ -12,7 +12,7 @@ Linux and macOS only.
 | [`/shingi:dispatch <task> [--start] [dir]`](recipes/dispatch/README.md) | Claim a task and start a new session for it, which waits for you or, with `--start`, starts work. The skill asks which if you don't say. | koan, sesshin |
 | [`/shingi:worktree <folder> [branch] [dir]`](recipes/worktree/README.md) | Add a git worktree in the repository's `.claude/worktrees`, on a branch named for the folder by default, and bind it to that folder. | koan, git |
 | [`/shingi:stale-claims`](recipes/stale-claims/README.md) | List claims whose session is gone, for you to decide on. | koan, sesshin |
-| [`/shingi:unit <type> <key> [--in <epic>] [title]`](recipes/unit/README.md) | Scaffold a unit of work, marked with its type: an `implementation` (setup, research, implementation, review and cleanup phases, in order), a `research` (scope, investigate, write up), or an `epic` that holds other units. | koan |
+| [`/shingi:uow <type> <key> [--in <epic>] [title]`](recipes/uow/README.md) | Scaffold a unit of work, marked with its type: an `implementation` (setup, research, implementation, review and cleanup phases, in order), a `research` (scope, investigate, write up), or an `epic` that holds other units. | koan |
 
 Every recipe needs `jq`. koan must be v0.13.0 or later, and sesshin v1.2.0 or later. Each recipe's README says what it reads and writes.
 
@@ -44,6 +44,6 @@ shellcheck -x recipes/lib.sh recipes/*/*.sh tests/run.sh tests/lib.sh tests/stub
 
 ## History
 
-shingi was a Python CLI for units of work: a koan folder for each unit's tasks and a working folder for its notes. koan now has folders with notes and material, and binds worktrees itself, so that job is done, and [`unit`](recipes/unit/README.md) keeps the idea as a typed koan folder. The tool and its specs stay in history at the `v0.4.0` tag, its last release.
+shingi was a Python CLI for units of work: a koan folder for each unit's tasks and a working folder for its notes. koan now has folders with notes and material, and binds worktrees itself, so that job is done, and [`uow`](recipes/uow/README.md) keeps the idea as a typed koan folder. The tool and its specs stay in history at the `v0.4.0` tag, its last release.
 
 If you used it, what it left is yours to keep or remove by hand: its tree under `~/shingi-root`, and `/shingi` in koan. Running `scripts/install.sh --uninstall` from a `v0.4.0` checkout removes its permission rules.

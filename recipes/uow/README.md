@@ -1,12 +1,12 @@
-# unit
+# uow
 
 Scaffold a unit of work in koan: a folder named for its key, marked with its type, holding the type's tasks in order. An epic holds other units. It starts nothing and completes nothing. You work through the tasks from a coordinator session, with [`claim`](../claim/README.md) and [`dispatch`](../dispatch/README.md).
 
 ```sh
-recipes/unit/unit.sh implementation ABC-123 'Fix the login bug'
-recipes/unit/unit.sh epic PAY-1 'Payments rework'
-recipes/unit/unit.sh research PAY-2 --in /PAY-1 'Which gateway'
-/shingi:unit implementation ABC-123 'Fix the login bug'    # the skill, in Claude Code
+recipes/uow/uow.sh implementation ABC-123 'Fix the login bug'
+recipes/uow/uow.sh epic PAY-1 'Payments rework'
+recipes/uow/uow.sh research PAY-2 --in /PAY-1 'Which gateway'
+/shingi:uow implementation ABC-123 'Fix the login bug'    # the skill, in Claude Code
 ```
 
 The title is optional, and becomes the folder's title. Quote it in the skill if it holds an apostrophe or other shell characters.
@@ -36,17 +36,17 @@ Each task is joined to its phase, and each phase's start gate waits on the previ
 
 ## The type is data
 
-The unit's folder gets `extra.shingi.unit`, `{"type": "implementation", "v": 1}`, where `v` is the version of the type's template. Nothing else is stored: the key is the folder's name, the title is its title, a unit's epic is the nearest folder above it with a unit of type `epic`, and the times are its tasks'. koan keeps `extra` when work is archived, so finished units can be read back, say for feedback on how each type goes:
+The unit's folder gets `extra.shingi.uow`, `{"type": "implementation", "v": 1}`, where `v` is the version of the type's template. Nothing else is stored: the key is the folder's name, the title is its title, a unit's epic is the nearest folder above it with a unit of type `epic`, and the times are its tasks'. koan keeps `extra` when work is archived, so finished units can be read back, say for feedback on how each type goes:
 
 ```sh
-koan folder list --limit null --fields path,title,extra,open,complete | jq '.result.folders[] | select(.extra.shingi.unit)'
+koan folder list --limit null --fields path,title,extra,open,complete | jq '.result.folders[] | select(.extra.shingi.uow)'
 ```
 
 **Completing:** koan doesn't complete gates by itself. The coordinator or you complete them, and each start gate is the point to decide whether that work should begin.
 
 **Needs:** koan v0.13.0 or later, and `jq`. Not sesshin.
 
-**Writes:** the folders, tasks and gates above, and `extra.shingi.unit` on the unit's folder.
+**Writes:** the folders, tasks and gates above, and `extra.shingi.uow` on the unit's folder.
 
 **Prints:** the unit, each task's ID, and what's ready now, under the epic if it's in one.
 

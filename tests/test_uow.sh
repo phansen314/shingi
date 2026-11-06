@@ -23,12 +23,12 @@ phase_task() {
 }
 
 test_case "makes the folder, the phases and a task in each"
-run "$unit" implementation ABC-123 Fix the login bug
+run "$uow" implementation ABC-123 Fix the login bug
 exit_is 0
 lacks 'NOT DONE'
 has 'Scaffolded /ABC-123, a unit of type implementation: Fix the login bug'
 equals "$(koan show /ABC-123 | jq -r .result.folder.title)" 'Fix the login bug'
-equals "$(koan show /ABC-123 | jq -c .result.folder.extra)" '{"shingi":{"unit":{"type":"implementation","v":1}}}'
+equals "$(koan show /ABC-123 | jq -c .result.folder.extra)" '{"shingi":{"uow":{"type":"implementation","v":1}}}'
 equals "$(koan show /ABC-123/setup | jq -c .result.folder.extra)" '{}'
 for phase in setup research implementation review cleanup; do
 	koan show "/ABC-123/$phase" >/dev/null || fail "no folder for $phase"
@@ -44,7 +44,7 @@ has '/ABC-123/setup.start'
 has 'a gate to complete'
 
 test_case "only the setup task's notes say how to make the worktree"
-"$unit" implementation ABC-123 >/dev/null
+"$uow" implementation ABC-123 >/dev/null
 setup_notes=$(cat "$(koan show "$(phase_task setup)" | jq -r .result.task.notes_path)")
 out=$setup_notes
 has '/shingi:worktree /ABC-123'
@@ -53,15 +53,15 @@ out=$(cat "$(koan show "$(phase_task research)" | jq -r .result.task.notes_path)
 lacks '/shingi:worktree'
 
 test_case "the title is optional, and may hold shell characters"
-run "$unit" implementation ABC-1
+run "$uow" implementation ABC-1
 exit_is 0
 equals "$(koan show /ABC-1 | jq -r .result.folder.title)" null
-run "$unit" implementation ABC-2 "it's \$HOME"
+run "$uow" implementation ABC-2 "it's \$HOME"
 exit_is 0
 equals "$(koan show /ABC-2 | jq -r .result.folder.title)" "it's \$HOME"
 
 test_case "completes nothing, and the phases open one at a time, in order"
-"$unit" implementation ABC-123 >/dev/null
+"$uow" implementation ABC-123 >/dev/null
 equals "$(koan task list /ABC-123 --state complete --limit 1 --fields id | jq -r .result.total)" 0
 for phase in setup research implementation review cleanup; do
 	equals "$(frontier)" "(/ABC-123/$phase.start)"
@@ -75,29 +75,29 @@ equals "$(frontier)" ""
 equals "$(koan show /ABC-123 | jq -r .result.folder.finished)" true
 
 test_case "a task joined later waits in the phase's order"
-"$unit" implementation ABC-123 >/dev/null
+"$uow" implementation ABC-123 >/dev/null
 late=$(new_task 'Read the logs' --folder /ABC-123/research --join /ABC-123/research)
 equals "$(koan show "$late" | jq -r .result.task.readiness)" blocked
 equals "$(frontier)" "(/ABC-123/setup.start)"
 
 test_case "an existing folder refuses, and changes nothing"
-"$unit" implementation ABC-123 >/dev/null
+"$uow" implementation ABC-123 >/dev/null
 before=$(koan task list /ABC-123 --limit 1 --fields id | jq -r .result.total)
-run "$unit" implementation ABC-123
+run "$uow" implementation ABC-123
 stopped
 has '"rule":"exists"'
 equals "$(koan task list /ABC-123 --limit 1 --fields id | jq -r .result.total)" "$before"
 
 test_case "a key that can't name one folder refuses, and makes nothing"
 for key in A/B ../x 'a b' a.start ''; do
-	run "$unit" implementation "$key"
+	run "$uow" implementation "$key"
 	stopped
 done
 equals "$(koan folder list --limit 1 --fields id | jq -r .result.total)" 0
 equals "$(koan task list --limit 1 --fields id | jq -r .result.total)" 0
 
 test_case "a title koan refuses makes nothing"
-run "$unit" implementation ABC-123 "$(printf 'one\ntwo')"
+run "$uow" implementation ABC-123 "$(printf 'one\ntwo')"
 stopped
 has '"ok":false'
 equals "$(koan folder list --limit 1 --fields id | jq -r .result.total)" 0
@@ -114,17 +114,17 @@ fi
 exec "$real_koan" "\$@"
 EOF
 chmod +x "$scratch/refuse/koan"
-PATH=$scratch/refuse:$PATH run "$unit" implementation ABC-123
+PATH=$scratch/refuse:$PATH run "$uow" implementation ABC-123
 stopped
 has "research doesn't wait on setup"
 has '"kind":"busy"'
 koan show /ABC-123 >/dev/null || fail "the folder should stay"
 
 test_case "research: three tasks in the unit's folder, one after another"
-run "$unit" research R-1 Why is it slow
+run "$uow" research R-1 Why is it slow
 exit_is 0
 lacks 'NOT DONE'
-equals "$(koan show /R-1 | jq -c .result.folder.extra)" '{"shingi":{"unit":{"type":"research","v":1}}}'
+equals "$(koan show /R-1 | jq -c .result.folder.extra)" '{"shingi":{"uow":{"type":"research","v":1}}}'
 equals "$(koan folder list /R-1 --limit 1 --fields id | jq -r .result.total)" 0
 equals "$(koan task list /R-1 --fields gate,title --limit null | jq -r '[.result.tasks[] | select(.gate == null) | .title] | join(",")')" 'Scope R-1,Investigate R-1,Write up R-1'
 for step in Scope Investigate 'Write up'; do
@@ -141,20 +141,20 @@ out=$(cat "$(koan task list /R-1 --state open,complete --fields title,notes_path
 has 'findings'
 
 test_case "epic: a marked folder and nothing else"
-run "$unit" epic BIG-1 Payments rework
+run "$uow" epic BIG-1 Payments rework
 exit_is 0
 has 'Scaffolded /BIG-1, a unit of type epic: Payments rework'
 has '--in /BIG-1'
-equals "$(koan show /BIG-1 | jq -c .result.folder.extra)" '{"shingi":{"unit":{"type":"epic","v":1}}}'
+equals "$(koan show /BIG-1 | jq -c .result.folder.extra)" '{"shingi":{"uow":{"type":"epic","v":1}}}'
 equals "$(koan task list --limit 1 --fields id | jq -r .result.total)" 0
 
 test_case "units in an epic wait on its start, and its done waits on them"
-"$unit" epic BIG-1 >/dev/null
-run "$unit" implementation ABC-1 --in /BIG-1 Fix login
+"$uow" epic BIG-1 >/dev/null
+run "$uow" implementation ABC-1 --in /BIG-1 Fix login
 exit_is 0
 has 'Scaffolded /BIG-1/ABC-1, a unit of type implementation: Fix login'
 has '/BIG-1.start'
-"$unit" research R-1 --in "$(koan show /BIG-1 | jq -r .result.folder.id)" >/dev/null
+"$uow" research R-1 --in "$(koan show /BIG-1 | jq -r .result.folder.id)" >/dev/null
 koan show /BIG-1/R-1 >/dev/null || fail "--in should take the epic's ID too"
 equals "$(frontier_of /BIG-1)" "(/BIG-1.start)"
 complete_ref /BIG-1.start
@@ -165,17 +165,17 @@ equals "$(koan show /BIG-1.done | jq -r '[.result.task.blocked_by[].ref | sub("^
 equals "$(koan show /BIG-1/ABC-1.done | jq -r '.result.task.blocked_by | length')" 5
 
 test_case "an epic may hold an epic"
-"$unit" epic BIG-1 >/dev/null
-run "$unit" epic BIG-2 --in /BIG-1
+"$uow" epic BIG-1 >/dev/null
+run "$uow" epic BIG-2 --in /BIG-1
 exit_is 0
 equals "$(koan show /BIG-1.done | jq -r '.result.task.blocked_by[0].ref | sub("^@[0-9]+ "; "")')" "(/BIG-1/BIG-2.done)"
 
 test_case "--in refuses what isn't an epic, and makes nothing"
-"$unit" implementation ABC-1 >/dev/null
+"$uow" implementation ABC-1 >/dev/null
 koan folder create /plain >/dev/null
 before=$(koan folder list --limit 1 --fields id | jq -r .result.total)
 for where in /ABC-1 /plain /nope "$(new_task loose)"; do
-	run "$unit" research R-1 --in "$where"
+	run "$uow" research R-1 --in "$where"
 	stopped
 done
 equals "$(koan folder list --limit 1 --fields id | jq -r .result.total)" "$before"
@@ -183,18 +183,18 @@ equals "$(koan folder list --limit 1 --fields id | jq -r .result.total)" "$befor
 test_case "an unknown type, or --in twice or bare, is bad usage"
 for args in "bogus X" "story X" "research R-1 --in /a --in /b" "research R-1 --in"; do
 	# shellcheck disable=SC2086 # split on purpose
-	run "$unit" $args
+	run "$uow" $args
 	exit_is 2
 done
 
 test_case "koan missing"
 only_tools jq
-run "$unit" implementation ABC-123
+run "$uow" implementation ABC-123
 stopped
 has "koan isn't on PATH"
 
 test_case "bad usage exits 2"
-run "$unit"
+run "$uow"
 exit_is 2
 
 finish
