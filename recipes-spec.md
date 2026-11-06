@@ -1,6 +1,6 @@
 # Feature: shingi as a repo of recipes
 
-**Status:** all the recipes are built: `claim`, `dispatch`, `worktree`, `stale-claims` and `story`. The Python tool is removed. Written against shingi `main` at v0.4.0, koan v0.14.0 and sesshin 1.2.1.
+**Status:** all the recipes are built: `claim`, `dispatch`, `worktree`, `stale-claims` and `unit`. The Python tool is removed. Written against shingi `main` at v0.4.0, koan v0.14.0 and sesshin 1.2.1.
 
 ## Summary
 
@@ -10,7 +10,7 @@ shingi stops being a CLI and becomes a small repo of **recipes**: scripts, with 
 - `/shingi:dispatch <task> [--start] [dir]`: claim a task and start **a new session** for it through sesshin, whose first prompt is `/shingi:claim`, with `--start` if asked for;
 - `/shingi:worktree <folder> [branch] [dir]`: add a git worktree in the repository's `.claude/worktrees` and bind it to a koan folder;
 - `/shingi:stale-claims`: list claims whose session is gone;
-- `/shingi:story <ticket-key> [title]`: scaffold a ticket's phases, in order, with a task in each.
+- `/shingi:unit <type> <key> [--in <epic>] [title]`: scaffold a unit of work of type `implementation`, `research` or `epic`, marked with its type, with the type's tasks in order.
 
 ## Why
 
@@ -23,7 +23,7 @@ shingi stops being a CLI and becomes a small repo of **recipes**: scripts, with 
 
 1. **Recipes, not a program.** Each recipe is a shell script plus a README, and usually a skill. No binary, no package, no state of its own.
 2. **One-way dependency.** shingi knows koan and sesshin through their JSON contracts. Their docs, code and data never name shingi. A recipe that needs only koan says so and runs without sesshin.
-3. **shingi owns the links it makes.** Following "one program, one namespace", a recipe that ties a claim to a session writes under `shingi`: `{"shingi":{"job":"koan-42"}}` on the koan claim. Never a `sesshin` key in koan, or a `koan` key in sesshin. A link no recipe reads isn't written.
+3. **shingi owns the links it makes.** Following "one program, one namespace", a recipe that ties a claim to a session writes under `shingi`: `{"shingi":{"job":"koan-42"}}` on the koan claim. Never a `sesshin` key in koan, or a `koan` key in sesshin. A link no recipe reads isn't written, unless it's data for the user to read back: `unit` marks each unit's folder with `{"shingi":{"unit":{"type":…,"v":1}}}`, so finished work can be studied by type.
 4. **Skills wrap scripts, never the reverse.** A skill is a one-line `!` call to its recipe's script plus a few sentences telling the session what to do with the output. The exception is `dispatch`, whose skill may need to ask the user something first, which a `!` call can't wait for: its text settles `--start`, then runs the script. A person, a cron job or another harness can run the same script without Claude Code.
 5. **Every recipe states what it needs and what it writes:** the tools and minimum versions, and every `extra` key it reads or writes. Its script checks the versions first, and names the missing tool plainly.
 6. **Scripts tell, they don't abort.** A skill's `!` command aborts the whole invocation on a non-zero exit. So a script that runs from a skill exits 0 when koan or sesshin refuses, and prints what happened. A refusal's first line begins `DON'T START:`, which is what the skills look for, or `NOT DONE:` in a recipe that starts no work. A non-zero exit is kept for the script's own bugs and bad usage.
@@ -41,13 +41,13 @@ recipes/
   dispatch/  README.md  dispatch.sh
   worktree/  README.md  worktree.sh
   stale-claims/  README.md  stale-claims.sh
-  story/     README.md  story.sh
+  unit/      README.md  unit.sh
 claude/skills/
   claim/SKILL.md                  → /shingi:claim <task> [--start]
   dispatch/SKILL.md               → /shingi:dispatch <task> [--start] [dir]
   worktree/SKILL.md               → /shingi:worktree <folder> [branch] [dir]
   stale-claims/SKILL.md           → /shingi:stale-claims
-  story/SKILL.md                  → /shingi:story <ticket-key> [title]
+  unit/SKILL.md                   → /shingi:unit <type> <key> [--in <epic>] [title]
 tests/
   run.sh                          runs every test file
   lib.sh                          a scratch HOME per test, assertions
@@ -133,7 +133,7 @@ Scripts find `lib.sh` and each other from their own path: Claude Code fills `${C
   - `dispatch`: every branch of step 6, with the claim afterwards held or undone as the step says; the exact `spawn` arguments with and without `--start`, with `--cwd` only when `[dir]` is given; the new session's `claim` accepting the claim, with and without `--start`; options after `--` passed through; a blocked task opening no window.
   - `worktree`: a new and an existing branch, the branch defaulting to the folder's name, the default and an explicit directory, git's status staying clean, each refusal making nothing, and a refused bind removing what was made.
   - `stale-claims`: live, gone and no job, and that it changes nothing.
-  - `story`: what it makes, the phases opening one at a time, a task joined later, each refusal making nothing, and a refused edge saying what's left.
+  - `unit`: what each type makes and its `extra`, the phases or tasks opening one at a time, a task joined later, units in an epic and an epic in an epic, each refusal making nothing, and a refused edge saying what's left.
   - Every script that a skill runs exits 0 on every refusal, and prints the refused tool's envelope.
 - **shellcheck** on every script, in CI.
 - CI on Linux and macOS, reusing today's workflow's action pins.
@@ -166,7 +166,7 @@ Each recipe's README states its usage, needs and writes in full.
 
 - **worktree:** `git worktree add` and `koan bind` together, with `koan context --here` to finish. A refused bind removes the worktree again, and the branch if this run made it. The branch defaults to the folder's name, and the directory to `.claude/worktrees/` in the repository, where Claude Code's `EnterWorktree` can switch to it, which it allows between worktrees only under that directory. Since that's inside the checkout, it adds the directory to `.git/info/exclude` when git doesn't already ignore it. Its path goes to `dispatch`.
 - **stale-claims:** claims whose `extra.shingi.job` names no live sesshin session, joined with `jq` from `koan task list --claimed` and `sesshin list`, for the user to decide on unclaiming. Claims with no job can't be judged, and are listed apart. It changes nothing.
-- **story:** a folder per ticket under the root, with `setup`, `research`, `implementation`, `review` and `cleanup` inside and a task joined to each. Each phase's start gate waits on the previous phase's done gate, so the frontier shows only the current phase: if tasks alone waited on the previous phase, all five start gates would be ready at once. A batch can't make an edge between gates, so `koan block` makes them after it. The setup task's notes say to run `/shingi:worktree /<key>`, for one worktree per ticket, which the coordinator or the user does, since a worker changes nothing in koan. It completes nothing, gates included (principle 8).
+- **unit:** a unit of work, as the Python tool had, now as a koan folder named for its key and marked with its type under `extra.shingi.unit`, with a template version `v`. The types are built in, with no config: `implementation` has `setup`, `research`, `implementation`, `review` and `cleanup` phase folders with a task joined to each, and each phase's start gate waits on the previous phase's done gate, so the frontier shows only the current phase: if tasks alone waited on the previous phase, all five start gates would be ready at once. A batch can't make an edge between gates, so `koan block` makes them after it. Its setup task's notes say to run `/shingi:worktree <unit>`, for one worktree per unit, which the coordinator or the user does, since a worker changes nothing in koan. `research` is three tasks in order, `Scope`, `Investigate` and `Write up`, and no worktree. `epic` is the folder alone, and `--in <epic>` joins a unit to it, so the epic's gates enclose its units, which run side by side; an implementation's phases are joined to the unit then, so the unit's gates enclose them. Only the type is stored: the key, title, parent and times come from koan, which keeps `extra` in the archive. It completes nothing, gates included (principle 8). A `review` type waits on its phases being settled.
 
 ## Later recipes
 

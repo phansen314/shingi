@@ -11,7 +11,7 @@ worktree=$repo/recipes/worktree/worktree.sh
 # shellcheck disable=SC2034
 stale=$repo/recipes/stale-claims/stale-claims.sh
 # shellcheck disable=SC2034
-story=$repo/recipes/story/story.sh
+unit=$repo/recipes/unit/unit.sh
 scratch=$(cd "$(mktemp -d)" && pwd -P)
 trap 'rm -rf "$scratch"' EXIT
 real_path=$PATH
