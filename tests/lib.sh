@@ -3,8 +3,6 @@
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 # shellcheck disable=SC2034 # the test files use these
-start=$repo/recipes/start/start.sh
-# shellcheck disable=SC2034
 claim=$repo/recipes/claim/claim.sh
 # shellcheck disable=SC2034
 dispatch=$repo/recipes/dispatch/dispatch.sh
@@ -12,6 +10,8 @@ dispatch=$repo/recipes/dispatch/dispatch.sh
 worktree=$repo/recipes/worktree/worktree.sh
 # shellcheck disable=SC2034
 stale=$repo/recipes/stale-claims/stale-claims.sh
+# shellcheck disable=SC2034
+uow=$repo/recipes/uow/uow.sh
 scratch=$(cd "$(mktemp -d)" && pwd -P)
 trap 'rm -rf "$scratch"' EXIT
 real_path=$PATH

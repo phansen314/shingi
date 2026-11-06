@@ -7,18 +7,25 @@ here=$(cd "$(dirname "$0")" && pwd -P)
 # shellcheck source=recipes/lib.sh
 . "$here/../lib.sh"
 
-text="dispatch.sh <task> [dir] [-- <sesshin spawn options>]"
+text="dispatch.sh <task> [--start] [dir] [-- <sesshin spawn options>]"
 [ $# -ge 1 ] || usage "$text"
 id=$(task_id "$1") || usage "$text"
 shift
 
+prompt="/shingi:claim $id"
 dir=
-if [ $# -ge 1 ] && [ "$1" != -- ]; then
-	dir=$1
+while [ $# -ge 1 ] && [ "$1" != -- ]; do
+	case $1 in
+	--start) prompt="/shingi:claim $id --start" ;;
+	-*) usage "$text" ;;
+	*)
+		[ -z "$dir" ] || usage "$text"
+		dir=$1
+		;;
+	esac
 	shift
-fi
+done
 if [ $# -ge 1 ]; then
-	[ "$1" = -- ] || usage "$text"
 	shift
 fi
 
@@ -72,7 +79,7 @@ if ! claimed=$(koan claim "$id" --extra "$extra" 2>/dev/null); then
 fi
 
 # ${a[@]+...}: an empty array is an unset variable to macOS's bash 3.2.
-spawned=$(sesshin spawn --job "$job" ${cwd[@]+"${cwd[@]}"} --prompt "/shingi:start $id" "$@" 2>/dev/null)
+spawned=$(sesshin spawn --job "$job" ${cwd[@]+"${cwd[@]}"} --prompt "$prompt" "$@" 2>/dev/null)
 status=$?
 
 if [ "$status" -ne 0 ]; then
@@ -87,7 +94,7 @@ if [ "$status" -ne 0 ]; then
 	exit 0
 fi
 
-printf 'Dispatched @%s to the session with job %s.\n' "$id" "$job"
+printf 'Dispatched @%s to the session with job %s, whose first prompt is %s.\n' "$id" "$job" "$prompt"
 if jq -e '.warnings | any(.kind == "not-started")' >/dev/null 2>&1 <<<"$spawned"; then
 	printf "The session hasn't started yet. It may be waiting at Claude's workspace-trust dialog: accept it in the new window. @%s stays claimed.\n" "$id"
 fi

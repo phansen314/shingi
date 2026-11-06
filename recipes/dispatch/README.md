@@ -1,17 +1,20 @@
 # dispatch
 
-Claim a task and start a new Claude session for it.
+Claim a task and start a new Claude session for it. The session's first prompt is [`/shingi:claim`](../claim/README.md), so it waits for you and you can work on the task with it. With `--start`, it starts work right away.
 
 ```sh
-recipes/dispatch/dispatch.sh 42                          # in the working directory
-recipes/dispatch/dispatch.sh 42 ~/code/api-feature       # in that directory
-recipes/dispatch/dispatch.sh 42 -- --template opus       # options for sesshin spawn
-/shingi:dispatch 42 ~/code/api-feature                   # the skill, in Claude Code
+recipes/dispatch/dispatch.sh 42                                # waits, in the working directory
+recipes/dispatch/dispatch.sh 42 --start ~/code/api-feature     # starts work, in that directory
+recipes/dispatch/dispatch.sh 42 --start -- --template opus     # options for sesshin spawn
+/shingi:dispatch 42                                            # the skill, which asks which you want
+/shingi:dispatch 42 --start ~/code/api-feature                 # or takes it, in Claude Code
 ```
 
-**Needs:** koan v0.13.0 or later, sesshin v1.2.0 or later with kitty or iTerm2 set up for `spawn`, and `jq`. The new session needs the shingi plugin, installed for the user rather than a project, so that it has `/shingi:start`.
+The script waits unless told `--start`. The skill settles it first, from your arguments or the conversation, and asks if neither says.
 
-**Writes:** the claim's `extra`, `{"shingi":{"by":"dispatch","job":"koan-42"}}`, and the session's sesshin job, `koan-42`.
+**Needs:** koan v0.13.0 or later, sesshin v1.2.0 or later with kitty or iTerm2 set up for `spawn`, and `jq`. The new session needs the shingi plugin, installed for the user rather than a project, so that it has `/shingi:claim`.
+
+**Writes:** the claim's `extra`, `{"shingi":{"by":"dispatch","job":"koan-42"}}`, and the session's sesshin job, `koan-42`. Claiming first means nothing else can take the task while the window opens. The new session recognises the claim by its job.
 
 **The handle:** `sesshin focus koan-42`, `sesshin show koan-42` and `sesshin send koan-42 --text '…'` reach the session.
 
