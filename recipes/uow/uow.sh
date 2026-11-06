@@ -20,27 +20,32 @@ epic | implementation | research) ;;
 *) usage "$synopsis" ;;
 esac
 
+# The title is built as a string, not an array: macOS's bash 3.2 splits ${a[*]}
+# in an assignment, which would turn a line break into a space.
 parent=
-words=()
+title=
 while [ $# -gt 0 ]; do
 	case $1 in
 	--in)
-		[ $# -ge 2 ] && [ -z "$parent" ] || usage "$synopsis"
+		if [ $# -lt 2 ] || [ -n "$parent" ]; then
+			usage "$synopsis"
+		fi
 		parent=$2
 		shift 2
 		;;
 	--)
 		shift
-		words+=("$@")
+		for word; do
+			title=${title:+$title }$word
+		done
 		break
 		;;
 	*)
-		words+=("$1")
+		title=${title:+$title }$1
 		shift
 		;;
 	esac
 done
-title=${words[*]:-}
 
 say=stop
 require_koan || exit 0

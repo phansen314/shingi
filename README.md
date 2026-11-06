@@ -20,6 +20,8 @@ The skills are for you to invoke, so nothing starts work on its own. A worker se
 
 koan describes the work, and you manage it from a coordinator session. Sessions using `/shingi:claim`, dispatched or not, are workers: they report when they're done, and the coordinator or you run `koan complete`. Workers mustn't run it, because it breaks Claude's auto mode classifier when the session's working directory is a worktree.
 
+`/shingi:dispatch`, `/shingi:uow` and `/shingi:worktree` take plain words as well as exact arguments: the session settles the arguments, asks for what's missing, and runs the script once. Each skill pre-approves its own script, but only in the turn it was invoked in. If the session asks you something first, the script runs in the next turn and goes through Claude Code's usual permission check: auto mode allows it, and otherwise Claude Code asks.
+
 ## Install
 
 Install koan, sesshin and `jq`, each with its own instructions, then the plugin:
