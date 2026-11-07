@@ -66,6 +66,14 @@ run "$stale"
 stopped
 has "sesshin isn't on PATH"
 
+test_case "a list that isn't JSON says so, and exits 0"
+stub_sesshin
+printf 'not json\n' >"$HOME/list-out"
+run "$stale"
+exit_is 0
+stopped
+has "the list of sessions wasn't JSON"
+
 test_case "bad usage exits 2"
 stub_sesshin
 run "$stale" extra

@@ -286,18 +286,25 @@ has "jq isn't on PATH"
 
 test_case "--start: an old koan is refused by version"
 mkdir "$HOME/bin"
-printf '#!/usr/bin/env bash\necho %s\n' "'{\"ok\":true,\"result\":{\"version\":\"v0.12.9\"}}'" >"$HOME/bin/koan"
+printf '#!/usr/bin/env bash\necho %s\n' "'{\"ok\":true,\"result\":{\"version\":\"v0.13.9\"}}'" >"$HOME/bin/koan"
 chmod +x "$HOME/bin/koan"
 PATH=$HOME/bin:$PATH run "$claim" 1 --start
 refused
-has 'found v0.12.9'
+has 'found v0.13.9'
 
 test_case "--start: a development build's version passes the check"
 mkdir "$HOME/bin"
 printf '#!/usr/bin/env bash\necho %s\n' "'{\"ok\":true,\"result\":{\"version\":\"(devel)\"}}'" >"$HOME/bin/koan"
 chmod +x "$HOME/bin/koan"
 PATH=$HOME/bin:$PATH run "$claim" 1 --start
-lacks 'v0.13.0 or later'
+lacks 'v0.14.0 or later'
+
+test_case "--start: a four-part version passes the check"
+mkdir "$HOME/bin"
+printf '#!/usr/bin/env bash\necho %s\n' "'{\"ok\":true,\"result\":{\"version\":\"v0.14.0.1\"}}'" >"$HOME/bin/koan"
+chmod +x "$HOME/bin/koan"
+PATH=$HOME/bin:$PATH run "$claim" 1 --start
+lacks 'v0.14.0 or later'
 
 test_case "--start: bad usage exits 2"
 run "$claim" --start

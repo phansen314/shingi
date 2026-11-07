@@ -27,7 +27,9 @@ The title is optional, and becomes the folder's title. In the skill, you can giv
 
 Each task is joined to its phase, and each phase's start gate waits on the previous phase's done gate, so `koan frontier /ABC-123` shows only the current phase. A task you add later with `--join /ABC-123/research` falls into the same order. The setup task's notes say to run [`/shingi:worktree /ABC-123`](../worktree/README.md), which makes one worktree for the whole unit, on the branch `ABC-123`, in the repository's `.claude/worktrees/ABC-123`. Every phase's worker can share it. The coordinator session or you run it, because a worker changes nothing in koan.
 
-**research:** three tasks in the unit's folder, one after another, and no worktree: `Scope`, `Investigate` and `Write up`. The write-up's notes ask for the findings there.
+Outside an epic, the unit's folder has no gates of its own, since nothing joins the phases to it: the first gate is `/ABC-123/setup.start`, and the unit is done when `/ABC-123/cleanup` is. Inside an epic, the phases are joined to the unit, so it has `.start` and `.done` gates that enclose them.
+
+**research:** three tasks in the unit's folder, one after another, and no worktree: `Scope`, `Investigate` and `Write up`. The write-up's notes ask for the findings there. The tasks are joined to the unit, so it has `.start` and `.done` gates, in or out of an epic.
 
 **epic:** the folder alone. Add units to it with `--in`.
 
@@ -45,7 +47,7 @@ koan folder list --limit null --fields path,title,extra,open,complete | jq '.res
 
 **Completing:** koan doesn't complete gates by itself. The coordinator or you complete them, and each start gate is the point to decide whether that work should begin.
 
-**Needs:** koan v0.13.0 or later, and `jq`. Not sesshin.
+**Needs:** koan v0.14.0 or later, and `jq`. Not sesshin.
 
 **Writes:** the folders, tasks and gates above, and `extra.shingi.uow` on the unit's folder.
 

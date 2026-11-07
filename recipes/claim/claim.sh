@@ -32,7 +32,11 @@ if [ -z "$start" ]; then
 	require_koan || exit 0
 	claim_here "$id" || exit 0
 
-	show=$(koan show "$id" 2>/dev/null)
+	if ! show=$(koan show "$id" 2>/dev/null) || ! jq -e '.result.task' >/dev/null 2>&1 <<<"$show"; then
+		printf '@%s is claimed, but koan show failed, so its notes path is unknown. Tell the user, quoting koan'"'"'s message.\n' "$id"
+		printf '%s\n' "$show"
+		exit 0
+	fi
 	jq -r '.result.task | "\(.ref) is claimed: \(.title)\nNotes: \(.notes_path)"' <<<"$show"
 	if [ "$(jq -r .result.task.readiness <<<"$show")" = blocked ]; then
 		printf 'It is blocked by %s, so it is reserved ahead, and --start refuses it until then.\n' \

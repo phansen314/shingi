@@ -25,9 +25,19 @@ if ! sessions=$(sesshin list --liveness live --include-headless --fields job 2>/
 	exit 0
 fi
 
+for name in claims sessions; do
+	if ! jq -e . >/dev/null 2>&1 <<<"${!name}"; then
+		stop "the list of $name wasn't JSON. Tell the user, quoting it."
+		printf '%s\n' "${!name}"
+		exit 0
+	fi
+done
+
+# Both lists go in on stdin, not as arguments, so a long list can't pass ARG_MAX.
 # sesshin treats jobs that differ only in case as the same job.
-jq -cn --argjson claims "$claims" --argjson sessions "$sessions" '
-	[$sessions.result.sessions[].job | select(. != null) | ascii_downcase] as $live
+printf '%s\n%s\n' "$claims" "$sessions" | jq -cs '
+	.[0] as $claims | .[1] as $sessions
+	| [$sessions.result.sessions[].job | select(. != null) | ascii_downcase] as $live
 	| [$claims.result.tasks[]
 		| {ref, title, claimed_at: .claim.claimed_at, job: .claim.extra.shingi.job}] as $all
 	| {ok: true,

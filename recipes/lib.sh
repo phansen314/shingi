@@ -29,8 +29,9 @@ version_at_least() {
 	case $have in
 	*[!0-9.]*) return 0 ;;
 	esac
-	IFS=. read -r h1 h2 h3 <<<"$have"
-	IFS=. read -r w1 w2 w3 <<<"$want"
+	# _ takes any fourth part, which would otherwise make h3 non-numeric.
+	IFS=. read -r h1 h2 h3 _ <<<"$have"
+	IFS=. read -r w1 w2 w3 _ <<<"$want"
 	[ "$h1" -gt "$w1" ] && return 0
 	[ "$h1" -lt "$w1" ] && return 1
 	[ "$h2" -gt "$w2" ] && return 0
@@ -47,7 +48,7 @@ require_koan() {
 		return 1
 	fi
 	if ! command -v koan >/dev/null; then
-		"${say:-refuse}" "koan isn't on PATH. Tell the user to install v0.13.0 or later."
+		"${say:-refuse}" "koan isn't on PATH. Tell the user to install v0.14.0 or later."
 		return 1
 	fi
 	version=$(koan version 2>/dev/null | jq -r '.result.version // empty' 2>/dev/null)
@@ -55,8 +56,8 @@ require_koan() {
 		"${say:-refuse}" "koan version didn't report a version. Tell the user."
 		return 1
 	fi
-	if ! version_at_least "$version" 0.13.0; then
-		"${say:-refuse}" "this needs koan v0.13.0 or later, and found $version. Tell the user."
+	if ! version_at_least "$version" 0.14.0; then
+		"${say:-refuse}" "this needs koan v0.14.0 or later, and found $version. Tell the user."
 		return 1
 	fi
 }

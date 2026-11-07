@@ -12,7 +12,7 @@ recipes/dispatch/dispatch.sh 42 --start -- --template opus     # options for ses
 
 The script waits unless told `--start`. The skill settles it first, from your arguments or the conversation, and asks if neither says.
 
-**Needs:** koan v0.13.0 or later, sesshin v1.2.0 or later with kitty or iTerm2 set up for `spawn`, and `jq`. The new session needs the shingi plugin, installed for the user rather than a project, so that it has `/shingi:claim`.
+**Needs:** koan v0.14.0 or later, sesshin v1.2.0 or later with kitty or iTerm2 set up for `spawn`, and `jq`. The new session needs the shingi plugin, installed for the user rather than a project, so that it has `/shingi:claim`.
 
 **Writes:** the claim's `extra`, `{"shingi":{"by":"dispatch","job":"koan-42"}}`, and the session's sesshin job, `koan-42`. Claiming first means nothing else can take the task while the window opens. The new session recognises the claim by its job.
 

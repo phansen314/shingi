@@ -7,7 +7,7 @@ recipes/stale-claims/stale-claims.sh
 /shingi:stale-claims                    # the skill, in Claude Code
 ```
 
-**Needs:** koan v0.13.0 or later, sesshin v1.2.0 or later, and `jq`.
+**Needs:** koan v0.14.0 or later, sesshin v1.2.0 or later, and `jq`.
 
 **Reads:** each claim's `extra.shingi.job`, and the job of each live session. **Writes:** nothing.
 

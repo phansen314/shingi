@@ -8,7 +8,7 @@
     {
       "name": "shingi",
       "source": "./",
-      "description": "Recipes that compose koan, sesshin and jq: claim a koan task and start on it with its notes loaded."
+      "description": "Recipes that compose koan, sesshin and jq: claim a task or dispatch it to a new session with its notes loaded, scaffold units of work, add bound worktrees, and find stale claims."
     }
   ]
 }

@@ -11,7 +11,7 @@ recipes/claim/claim.sh 42 --start    # claim if need be, and start work
 
 You can take the steps one at a time: `/shingi:claim 42`, then `/shingi:claim 42 --start` in the same session when you're ready.
 
-**Needs:** koan v0.13.0 or later, and `jq`.
+**Needs:** koan v0.14.0 or later, and `jq`.
 
 **Reads:** the task's claim, and its `extra.shingi.job` when present. **Writes:** when the task is unclaimed, the claim's `extra`: `{"shingi":{"by":"claude"}}`, plus `"job"` when `SESSHIN_JOB` is set.
 

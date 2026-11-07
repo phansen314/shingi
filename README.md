@@ -14,7 +14,7 @@ Linux and macOS only.
 | [`/shingi:stale-claims`](recipes/stale-claims/README.md) | List claims whose session is gone, for you to decide on. | koan, sesshin |
 | [`/shingi:uow <type> <key> [--in <epic>] [title]`](recipes/uow/README.md) | Scaffold a unit of work, marked with its type: an `implementation` (setup, research, implementation, review and cleanup phases, in order), a `research` (scope, investigate, write up), or an `epic` that holds other units. | koan |
 
-Every recipe needs `jq`. koan must be v0.13.0 or later, and sesshin v1.2.0 or later. Each recipe's README says what it reads and writes.
+Every recipe needs `jq`. koan must be v0.14.0 or later, and sesshin v1.2.0 or later. Each recipe's README says what it reads and writes.
 
 The skills are for you to invoke, so nothing starts work on its own. A worker session has two steps: `/shingi:claim` holds a task and pauses, so you can work on it with that session, and `--start` goes on to start work, claiming first if need be. From a coordinator session, `/shingi:dispatch` opens a worker at either step. A plain `koan claim` reserves a task for later. The scripts run the same way without Claude Code.
 

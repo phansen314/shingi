@@ -14,7 +14,7 @@ The branch defaults to the folder's name. It's used if it exists, and made from 
 
 The directory defaults to `.claude/worktrees/` in the repository, where Claude Code keeps worktrees. A session in the repository can go there with `EnterWorktree` and its `path`, and you can pass the path to [`dispatch`](../dispatch/README.md) to start a session there.
 
-**Needs:** koan v0.13.0 or later, `git` and `jq`.
+**Needs:** koan v0.14.0 or later, `git` and `jq`.
 
 **Writes:** a git worktree, perhaps a branch, and koan's marker in the worktree. In the default directory, if git doesn't already ignore `.claude/worktrees/`, it also adds that to the repository's `.git/info/exclude`, which is local and not committed, so the worktree can't be committed by accident. No `extra`.
 

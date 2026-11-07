@@ -67,7 +67,7 @@ Scripts find `lib.sh` and each other from their own path: Claude Code fills `${C
 
 **Usage:** `claim.sh <task> [--start]`, where `<task>` is an ID, `42` or `@42`. Skill: `/shingi:claim <task> [--start]`.
 
-**Needs:** koan v0.13.0 or later, and `jq`. Not sesshin.
+**Needs:** koan v0.14.0 or later, and `jq`. Not sesshin.
 
 **Reads:** the task's claim, and its `extra.shingi.job` when present.
 
@@ -101,7 +101,7 @@ Scripts find `lib.sh` and each other from their own path: Claude Code fills `${C
 
 **Usage:** `dispatch.sh <task> [--start] [dir] [-- <sesshin spawn options>]`. Without `--start`, the new session waits for the user; with it, the session starts work. Options after `--`, such as `--template opus` or `--type split`, go to `sesshin spawn` as given. Skill: `/shingi:dispatch <task> [--start] [dir]`, which asks which is wanted when it isn't clear.
 
-**Needs:** koan v0.13.0 or later, sesshin 1.2.0 or later with kitty or iTerm2 set up for `spawn`, and `jq`. The new session needs the shingi plugin, installed for the user, not just for a project, so that it has `/shingi:claim`.
+**Needs:** koan v0.14.0 or later, sesshin 1.2.0 or later with kitty or iTerm2 set up for `spawn`, and `jq`. The new session needs the shingi plugin, installed for the user, not just for a project, so that it has `/shingi:claim`.
 
 **Writes:** the claim's `extra`, `{"shingi":{"by":"dispatch","job":"koan-<id>"}}`, and the session's sesshin job, `koan-<id>`.
 
@@ -110,7 +110,7 @@ Scripts find `lib.sh` and each other from their own path: Claude Code fills `${C
 2. Work out the ID (`@42` → `42`), the job `koan-42`, and, when `[dir]` is given, the directory, resolved. It must exist.
 3. **Check it's ready:** a blocked task prints what it waits on, and stops, so no window opens only to refuse.
 4. **Claim first:** `koan claim <id> --extra '{"shingi":{"by":"dispatch","job":"koan-42"}}'`. On a failure, as `claim`'s step 2, and stop. Claiming before spawning means no other agent can take the task while the window opens. The new session's `/shingi:claim` recognises the claim by its job.
-5. **Spawn:** `sesshin spawn --job koan-42 [--cwd <dir>] --prompt '/shingi:claim 42[ --start]' [options after --]`. `--cwd` is passed only when `[dir]` is given, so a template's directory, or else the working directory, applies as sesshin's own default. So two dispatches with no `[dir]` share a checkout: give each its own directory until the `worktree` recipe exists.
+5. **Spawn:** `sesshin spawn --job koan-42 [--cwd <dir>] --prompt '/shingi:claim 42[ --start]' [options after --]`. `--cwd` is passed only when `[dir]` is given, so a template's directory, or else the working directory, applies as sesshin's own default. So two dispatches with no `[dir]` share a checkout: give each its own directory, such as one from the `worktree` recipe.
 6. **On a spawn failure**, by sesshin's error:
    - `terminal` with `details.reason` `launch-unknown`: a window may have opened, and sesshin keeps its reservation. Keep the claim, and print "A window may have opened: check with `sesshin focus koan-42`; @42 stays claimed".
    - anything else (`conflict` with `details.rule` `job-taken`, `terminal` with `launch-failed`, `invalid-input`, `not-found` for a template, …): nothing started, so undo the claim with `koan unclaim <id>`, and print sesshin's envelope with "No session started; @42 is unclaimed again".
@@ -154,7 +154,7 @@ Checked on Claude Code 2.1.318 with a throwaway plugin:
 4. **`SESSHIN_JOB`** reaches a `!` command. `CLAUDE_PLUGIN_ROOT` doesn't.
 5. **Output over about 30,000 characters** reaches the model as a 2KB preview and a path, which is why `claim --start` has a limit.
 
-Not yet seen: `allowed-tools` approving the `dispatch` script when the session runs it, rather than a `!` command, a real `sesshin spawn`, Claude's workspace-trust dialog in front of the first prompt, and the plugin installed from the marketplace rather than `--plugin-dir`. The end-to-end check below covers them.
+Not yet seen: `allowed-tools` approving the `dispatch` script when the session runs it, rather than a `!` command, a real `sesshin spawn`, Claude's workspace-trust dialog in front of the first prompt, and the plugin installed from the marketplace rather than `--plugin-dir`. The end-to-end check under **Done when** covers them.
 
 ## Build order
 
@@ -166,12 +166,13 @@ Each recipe's README states its usage, needs and writes in full.
 
 - **worktree:** `git worktree add` and `koan bind` together, with `koan context --here` to finish. A refused bind removes the worktree again, and the branch if this run made it. The branch defaults to the folder's name, and the directory to `.claude/worktrees/` in the repository, where Claude Code's `EnterWorktree` can switch to it, which it allows between worktrees only under that directory. Since that's inside the checkout, it adds the directory to `.git/info/exclude` when git doesn't already ignore it. Its path goes to `dispatch`. Its skill settles the folder, perhaps from a key, then runs the script (principle 4).
 - **stale-claims:** claims whose `extra.shingi.job` names no live sesshin session, joined with `jq` from `koan task list --claimed` and `sesshin list`, for the user to decide on unclaiming. Claims with no job can't be judged, and are listed apart. It changes nothing.
-- **uow:** a unit of work, as the Python tool had, now as a koan folder named for its key and marked with its type under `extra.shingi.uow`, with a template version `v`. The types are built in, with no config: `implementation` has `setup`, `research`, `implementation`, `review` and `cleanup` phase folders with a task joined to each, and each phase's start gate waits on the previous phase's done gate, so the frontier shows only the current phase: if tasks alone waited on the previous phase, all five start gates would be ready at once. A batch can't make an edge between gates, so `koan block` makes them after it. Its setup task's notes say to run `/shingi:worktree <unit>`, for one worktree per unit, which the coordinator or the user does, since a worker changes nothing in koan. `research` is three tasks in order, `Scope`, `Investigate` and `Write up`, and no worktree. `epic` is the folder alone, and `--in <epic>` joins a unit to it, so the epic's gates enclose its units, which run side by side; an implementation's phases are joined to the unit then, so the unit's gates enclose them. Only the type is stored: the key, title, parent and times come from koan, which keeps `extra` in the archive. It completes nothing, gates included (principle 8). Its skill settles the type, key, epic and title from what the user said, asking for a missing type or key and never inventing one, then runs the script (principle 4). A `review` type waits on its phases being settled.
+- **uow:** a unit of work, as the Python tool had, now as a koan folder named for its key and marked with its type under `extra.shingi.uow`, with a template version `v`. The types are built in, with no config: `implementation` has `setup`, `research`, `implementation`, `review` and `cleanup` phase folders with a task joined to each, and each phase's start gate waits on the previous phase's done gate, so the frontier shows only the current phase: if tasks alone waited on the previous phase, all five start gates would be ready at once. A batch can't make an edge between gates, so `koan block` makes them after it. Its setup task's notes say to run `/shingi:worktree <unit>`, for one worktree per unit, which the coordinator or the user does, since a worker changes nothing in koan. `research` is three tasks in order, `Scope`, `Investigate` and `Write up`, and no worktree. `epic` is the folder alone, and `--in <epic>` joins a unit to it, so the epic's gates enclose its units, which run side by side; an implementation's phases are joined to the unit then, so the unit's gates enclose them. Only the type is stored: the key, title, parent and times come from koan, which keeps `extra` in the archive. It completes nothing, gates included (principle 8). Its skill settles the type, key, epic and title from what the user said, asking for a missing type or key and never inventing one, then runs the script (principle 4). An implementation unit outside an epic has no gates of its own, since nothing joins its phases to it: its first gate is `setup.start`. A research unit's tasks are joined to it, so it has `.start` and `.done`.
 
 ## Later recipes
 
 Not built. Each in the same shape, if wanted after real use:
 - **parking:** the `waiting` and `deferred` conventions.
+- **a `review` unit type**, once the implementation type's phases have settled in real use.
 - **reminders:** a cron-driven runner that removes `deferred` when a date under `extra.shingi.remind` passes.
 
 ## Out of scope
