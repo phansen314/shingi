@@ -130,9 +130,27 @@ fi
 printf '\n'
 jq -r --argjson made "$made" '[.tasks, $made.result.tasks_made] | transpose[] | "@\(.[1])  \(.[0].title)"' <<<"$input"
 
-# Inside an epic, what's ready may be the epic's own gate.
-scope=${parent:-$root}
-ready=$(koan frontier "$scope" --fields ref,title 2>/dev/null | jq -r '.result.tasks[]? | "\(.ref) \(.title)"')
+# ready_under SCOPE: prints what's ready under SCOPE, one per line, or says koan
+# couldn't tell and is false.
+ready_under() {
+	local frontier
+	if frontier=$(koan frontier "$1" --fields ref,title 2>/dev/null) &&
+		jq -er '.result.tasks | map("\(.ref) \(.title)") | join("\n")' <<<"$frontier" 2>/dev/null; then
+		return 0
+	fi
+	printf '\nkoan frontier %s failed, so what is ready now is unknown. Run it to see.\n' "$1"
+	return 1
+}
+
+# Only the unit's own gates, since an epic under way has other units' work ready.
+# Nothing ready under the unit, in an epic, means the epic hasn't started: then
+# what's ready under the epic is its gate, since its units all wait on it.
+scope=$root
+ready=$(ready_under "$scope") || { printf '%s\n' "$ready"; exit 0; }
+if [ -z "$ready" ] && [ -n "$parent" ]; then
+	scope=$parent
+	ready=$(ready_under "$scope") || { printf '%s\n' "$ready"; exit 0; }
+fi
 if [ -n "$ready" ]; then
 	printf '\nReady now under %s, a gate to complete when that work should begin, not a task to claim:\n%s\n' "$scope" "$ready"
 else

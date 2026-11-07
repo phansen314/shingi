@@ -18,7 +18,7 @@ Settle these, from the arguments and the conversation:
 
 If the type or key is missing or unclear, ask for everything still missing in one message, and wait. Otherwise don't ask for confirmation.
 
-Then run this once, with the title as a single quoted argument after `--`:
+Then run this once, with the title as a single quoted argument after `--`, escaping any quote in it for the shell (`'Fix user'\''s login'`):
 
 ```sh
 "${CLAUDE_PLUGIN_ROOT}/recipes/uow/uow.sh" <type> <key> [--in <epic>] [-- '<title>']

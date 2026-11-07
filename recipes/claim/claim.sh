@@ -88,7 +88,11 @@ fi
 
 if [ "$(field .claim)" = null ]; then
 	claim_here "$id" || exit 0
-	show=$(koan show "$id" 2>/dev/null)
+	if ! show=$(koan show "$id" 2>/dev/null) || ! jq -e '.result.task' >/dev/null 2>&1 <<<"$show"; then
+		refuse "$ref is claimed, but koan show failed after, so its brief is unknown. Tell the user, quoting koan's message."
+		printf '%s\n' "$show"
+		exit 0
+	fi
 fi
 
 # START: is what tells the skill to start work.

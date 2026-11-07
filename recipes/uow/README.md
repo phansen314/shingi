@@ -51,7 +51,7 @@ koan folder list --limit null --fields path,title,extra,open,complete | jq '.res
 
 **Writes:** the folders, tasks and gates above, and `extra.shingi.uow` on the unit's folder.
 
-**Prints:** the unit, each task's ID, and what's ready now, under the epic if it's in one.
+**Prints:** the unit, each task's ID, and what's ready now under the unit: its first gate. In an epic that hasn't started, that's the epic's start gate instead. Other units' work in the epic isn't listed.
 
 **Refuses**, with a first line beginning `NOT DONE:`, koan's envelope where it refused, and exit 0, when the key holds anything but letters, digits and hyphens, `--in` names no folder or one that isn't an epic, or koan refuses the batch, for instance because the folder exists. Nothing is made then. A batch can't make an edge between gates, so an implementation's phase edges follow it: if one fails, the folders and tasks stay, and the output says which edge is missing.
 

@@ -164,6 +164,37 @@ equals "$(frontier_of /BIG-1/ABC-1)" "(/BIG-1/ABC-1/setup.start)"
 equals "$(koan show /BIG-1.done | jq -r '[.result.task.blocked_by[].ref | sub("^@[0-9]+ "; "")] | sort | join(" ")')" "(/BIG-1/ABC-1.done) (/BIG-1/R-1.done)"
 equals "$(koan show /BIG-1/ABC-1.done | jq -r '.result.task.blocked_by | length')" 5
 
+test_case "a unit added to an epic under way lists only its own gate as ready"
+"$uow" epic BIG-1 >/dev/null
+"$uow" research R-1 --in /BIG-1 >/dev/null
+complete_ref /BIG-1.start
+complete_ref /BIG-1/R-1.start
+run "$uow" research R-2 --in /BIG-1
+exit_is 0
+has 'Ready now under /BIG-1/R-2'
+has '(/BIG-1/R-2.start)'
+lacks 'R-1'
+
+test_case "a unit added to an epic not yet started lists the epic's gate as ready"
+"$uow" epic BIG-1 >/dev/null
+run "$uow" implementation ABC-1 --in /BIG-1
+exit_is 0
+has 'Ready now under /BIG-1,'
+has '(/BIG-1.start)'
+lacks 'ABC-1/setup.start'
+
+test_case "a failed frontier says what's ready is unknown, not that nothing is"
+shim=$scratch/shim$home_n
+mkdir -p "$shim"
+# shellcheck disable=SC2016 # the $1 and $@ are the shim's own
+printf '#!/usr/bin/env bash\n[ "$1" = frontier ] && exit 1\nexec %q "$@"\n' "$(command -v koan)" >"$shim/koan"
+chmod +x "$shim/koan"
+PATH=$shim:$PATH run "$uow" research R-1
+exit_is 0
+has 'Scaffolded /R-1'
+has 'koan frontier /R-1 failed'
+lacks 'Nothing under'
+
 test_case "an epic may hold an epic"
 "$uow" epic BIG-1 >/dev/null
 run "$uow" epic BIG-2 --in /BIG-1
